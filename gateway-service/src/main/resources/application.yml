@@ -1,0 +1,73 @@
+# 网关服务端口，外界唯一可访问的端口
+# 通过这个端口可以访问其他服务
+server:
+  port: 9001
+
+spring:
+  application:
+    name: gateway-service
+  cloud:
+    nacos:
+      discovery:
+        # 注册到Nacos的服务名
+        service: ${spring.application.name}
+        server-addr: localhost:8848
+    gateway:
+      # Spring Cloud Gateway 5.0 (spring-cloud-starter-gateway-server-webflux) 配置前缀变更为 server.webflux
+      server:
+        webflux:
+          discovery:
+            locator:
+              enabled: true # 开启从Nacos动态发现服务
+          routes:
+              # 路由配置，用于将请求转发到对应的服务，比如访问/product/**的请求将被转发到product-service服务
+            - id: product-route
+              uri: lb://product-service
+              predicates:
+                - Path=/product/**
+
+            - id: order-route
+              uri: lb://order-service
+              predicates:
+                - Path=/order/**
+
+            - id: user-route
+              uri: lb://user-service
+              predicates:
+                - Path=/user/**
+
+            - id: seckill-route
+              uri: lb://product-service
+              predicates:
+                - Path=/seckill/**
+
+            # 商家商品管理，需登录+商家角色(网关 GlobalAuthFilter 校验 X-User-Role=merchant)
+            - id: merchant-route
+              uri: lb://product-service
+              predicates:
+                - Path=/merchant/**
+
+            # 图片上传(POST /upload/image, 需 JWT) + 上传图片静态浏览(GET /upload/files/**, 公开)
+            - id: upload-route
+              uri: lb://product-service
+              predicates:
+                - Path=/upload/**
+          # 跨域配置: 前端 5173 访问网关 9001 时需要允许 CORS
+          # 否则浏览器会拦截请求, 控制台报 CORS policy 错误
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOriginPatterns: "*"     # 允许所有来源(开发期), 生产环境应指定具体域名
+                allowedMethods: "*"            # 允许所有 HTTP 方法
+                allowedHeaders: "*"            # 允许所有请求头(包括 Authorization)
+                allowCredentials: true         # 允许携带 Cookie/Authorization
+                maxAge: 3600                   # 预检请求缓存时间(秒)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: gateway
+
+logging:
+  level:
+    org.springframework.cloud.gateway: debug

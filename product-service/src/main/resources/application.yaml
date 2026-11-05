@@ -1,0 +1,75 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: product-service
+  # 本地开发配置(含数据库密码, 该文件已被 .gitignore 忽略); 从 classpath 可选导入, 不依赖启动工作目录
+  config:
+    import: optional:classpath:application-local.yaml
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+  # 数据源配置(MySQL 8.x, 时区用 Asia/Shanghai 避免 8 小时偏差)
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/spark_mall?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
+  # Redis 配置(商品详情/分类缓存)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  # 文件上传限制(图片上传接口用, 与 UploadService 的 5MB 校验保持一致)
+  servlet:
+    multipart:
+      max-file-size: 5MB      # 单个文件最大 5MB
+      max-request-size: 10MB  # 单次请求(含全部文件)最大 10MB
+
+# 图片上传配置: 本地存储目录(Windows 下 user.dir 即 product-service 运行目录)
+app:
+  upload-dir: ${user.dir}/upload
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    # 开发期打印 SQL, 便于调试(生产环境应关闭)
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 下划线转驼峰: t_product.category_id → Product.categoryId (MP 默认开启, 此处显式声明)
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      # 主键策略: AUTO = 跟随数据库自增
+      id-type: auto
+      # 逻辑删除字段全局配置(配合实体上的 @TableLogic)
+      logic-delete-field: is_deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  
+# ============ Seata 分布式事务(AT 模式) ============
+seata:
+  enabled: true
+  application-id: product-service
+  tx-service-group: spark_mall_tx_group   # 事务分组, 全局事务发起方与参与方必须一致
+  # 注册中心: 用 Nacos 发现 Seata Server
+  registry:
+    type: nacos
+    nacos:
+      application: seata-server
+      server-addr: localhost:8848
+      group: SEATA_GROUP
+      namespace: ""
+      cluster: default
+  # 配置中心(事务分组与集群映射; 此处用 file 模式本地解析, 简单可靠)
+  config:
+    type: file
+    file:
+      name: file.conf   # 需放入 resources, 或直接用下方 service 行内映射
+  # 事务分组 -> 集群 映射(等价 file.conf 里的 service.vgroupMapping)
+  service:
+    vgroup-mapping:
+      spark_mall_tx_group: default
+    grouplist:
+      default: localhost:8091

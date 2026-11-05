@@ -1,0 +1,74 @@
+# ===== 构建产物 =====
+target/
+!**/src/main/**/target/
+!**/src/test/**/target/
+build/
+dist/
+out/
+bin/
+*.class
+*.war
+
+# ===== 前端依赖与产物 =====
+node_modules/
+package-lock.json.bak
+pnpm-lock.yaml.bak
+yarn-error.log*
+
+# ===== 日志 =====
+*.log
+*.log.*
+logs/
+log/
+hs_err_pid*.log
+replay_pid*.log
+
+# ===== 上传文件/本地运行数据 =====
+upload/
+uploads/
+**/upload/
+**/uploads/
+
+# ===== 敏感配置(切勿提交) =====
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+application-prod.yml
+application-prod.yaml
+jwt-secret.txt
+*.jks
+*.p12
+*.pem
+*.key
+*.keystore
+secrets/
+credentials/
+
+# ===== IDE / 编辑器 =====
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+!.vscode/extensions.json
+.factorypath
+.settings/
+.classpath
+.project
+.springBeans
+.sts4-cache
+
+# ===== 系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 其他 =====
+.nb-gradle/
+nbproject/private/
+*.tmp
+*.bak
+*.swp
+*~

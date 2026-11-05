@@ -1,0 +1,36 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: user-service
+  # 本地开发配置(含数据库密码, 该文件已被 .gitignore 忽略); 从 classpath 可选导入, 不依赖启动工作目录
+  config:
+    import: optional:classpath:application-local.yaml
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+  # Redis: 退出登录时把 token 写入黑名单
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  # 数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/spark_mall?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: is_deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
