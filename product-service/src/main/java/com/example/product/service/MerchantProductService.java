@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 商家商品服务: 商家对自己商品的增删改查(含上下架)业务逻辑。
@@ -43,16 +45,34 @@ public class MerchantProductService {
 
     /**
      * 我的商品列表(含已下架), 按创建时间倒序。
+     * 支持按商品名称模糊搜索 + 按分类筛选(分类包含其所有子分类)。
      */
-    public Result.PageData<Product> listMyProducts(Long merchantId, String role, Integer page, Integer size) {
+    public Result.PageData<Product> listMyProducts(Long merchantId, String role, Integer page, Integer size,
+                                                   String name, Long categoryId) {
         requireMerchant(role);
-        Page<Product> pageResult = productMapper.selectPage(
-                new Page<>(page, size),
-                new LambdaQueryWrapper<Product>()
-                        .eq(Product::getMerchantId, merchantId)
-                        .orderByDesc(Product::getCreateTime)
-        );
+        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
+                .eq(Product::getMerchantId, merchantId);
+        if (name != null && !name.isBlank()) {
+            wrapper.like(Product::getName, name.trim());
+        }
+        if (categoryId != null) {
+            List<Long> ids = new ArrayList<>();
+            collectCategoryIds(categoryId, ids);
+            wrapper.in(Product::getCategoryId, ids);
+        }
+        wrapper.orderByDesc(Product::getCreateTime);
+        Page<Product> pageResult = productMapper.selectPage(new Page<>(page, size), wrapper);
         return new Result.PageData<>(pageResult.getTotal(), pageResult.getRecords());
+    }
+
+    /** 递归收集分类及其所有子分类 id(与 C 端商品列表的分类筛选口径一致) */
+    private void collectCategoryIds(Long parentId, List<Long> result) {
+        result.add(parentId);
+        List<Category> children = categoryMapper.selectList(
+                new LambdaQueryWrapper<Category>().eq(Category::getParentId, parentId));
+        for (Category child : children) {
+            collectCategoryIds(child.getId(), result);
+        }
     }
 
     /**
@@ -144,7 +164,7 @@ public class MerchantProductService {
         ProductStock stock = productStockMapper.selectOne(
                 new LambdaQueryWrapper<ProductStock>().eq(ProductStock::getProductId, productId));
         if (stock != null && stock.getLocked() != null && stock.getLocked() > 0) {
-            throw new BusinessException(400, "该商品存在锁定库存(有未支付订单), 无法删除");
+            throw new BusinessException(400, "该商品有未支付订单占用, 暂时无法删除");
         }
         // 实体有 @TableLogic, deleteById 实际执行 UPDATE is_deleted=1
         productMapper.deleteById(productId);

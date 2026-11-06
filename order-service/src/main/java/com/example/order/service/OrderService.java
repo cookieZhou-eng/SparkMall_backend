@@ -8,6 +8,8 @@ import com.example.common.entity.Order;
 import com.example.common.entity.OrderItem;
 import com.example.common.entity.Payment;
 import com.example.common.entity.Product;
+import com.example.common.entity.Refund;
+import com.example.common.entity.Review;
 import com.example.common.result.Result;
 import com.example.order.dto.OrderCancelRequest;
 import com.example.order.config.RabbitConfig;
@@ -18,6 +20,8 @@ import com.example.order.feign.ProductFeignClient;
 import com.example.order.mapper.OrderItemMapper;
 import com.example.order.mapper.OrderMapper;
 import com.example.order.mapper.PaymentMapper;
+import com.example.order.mapper.RefundMapper;
+import com.example.order.mapper.ReviewMapper;
 import jakarta.annotation.Resource;
 import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -91,6 +95,10 @@ public class OrderService {
     private OrderItemMapper orderItemMapper;
     @Resource
     private PaymentMapper paymentMapper;
+    @Resource
+    private ReviewMapper reviewMapper;
+    @Resource
+    private RefundMapper refundMapper;
     @Resource
     private ProductFeignClient productFeignClient;
     // 注意: Spring Boot 会同时自动配置 redisTemplate(RedisTemplate) 与 stringRedisTemplate(StringRedisTemplate) 两个 bean。
@@ -393,6 +401,43 @@ public class OrderService {
                 .stream()
                 .collect(Collectors.groupingBy(OrderItem::getOrderId));
         orders.forEach(o -> o.setItems(group.getOrDefault(o.getId(), List.of())));
+        fillReviewedFlags(orders, orderIds);
+        fillRefundStatus(orders, orderIds);
+    }
+
+    /**
+     * 一次性查出当前批次订单的最近一条退款申请, 填充到订单的非数据库字段。
+     * 前端订单列表据此展示"退款中/退款被拒", 并避免对已有进行中退款的订单重复显示"申请退款"。
+     */
+    private void fillRefundStatus(List<Order> orders, List<Long> orderIds) {
+        List<Refund> refunds = refundMapper.selectList(new LambdaQueryWrapper<Refund>()
+                .in(Refund::getOrderId, orderIds)
+                .orderByDesc(Refund::getApplyTime));
+        Map<Long, Refund> latestMap = refunds.stream()
+                .collect(Collectors.toMap(Refund::getOrderId, r -> r, (a, b) -> a));
+        orders.forEach(o -> {
+            Refund latest = latestMap.get(o.getId());
+            if (latest != null) {
+                o.setRefundStatus(latest.getStatus());
+                o.setRefundNo(latest.getRefundNo());
+            }
+        });
+    }
+
+    /**
+     * 一次性查出当前批次订单的所有评价, 标记到对应明细的 reviewed 字段。
+     * 前端据此把"评价"按钮置灰; 不用逐条查询避免 N+1。
+     */
+    private void fillReviewedFlags(List<Order> orders, List<Long> orderIds) {
+        List<Review> reviews = reviewMapper.selectList(
+                new LambdaQueryWrapper<Review>().in(Review::getOrderId, orderIds));
+        Map<Long, List<Long>> reviewedMap = reviews.stream()
+                .collect(Collectors.groupingBy(Review::getOrderId,
+                        Collectors.mapping(Review::getOrderItemId, Collectors.toList())));
+        orders.forEach(o -> {
+            List<Long> reviewedItemIds = reviewedMap.getOrDefault(o.getId(), List.of());
+            o.getItems().forEach(item -> item.setReviewed(reviewedItemIds.contains(item.getId())));
+        });
     }
 
     /** 计算每个订单的"待支付剩余秒数", 供前端实时倒计时展示 */

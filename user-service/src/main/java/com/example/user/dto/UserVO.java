@@ -17,7 +17,8 @@ public class UserVO {
     private String email;       // 邮箱
     private String avatar;      // 头像URL
     private Integer gender;     // 性别
-    private String role;        // 角色: customer-顾客 / merchant-商家
+    private String role;        // 角色: customer-顾客 / merchant-商家 / admin-管理员
+    private Integer status;     // 状态: 1-启用 0-禁用(管理端使用)
     private String shopName;    // 店铺名(商家)
     private String shopDesc;    // 店铺简介(商家)
     private LocalDateTime createTime; // 注册时间

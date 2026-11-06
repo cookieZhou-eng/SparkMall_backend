@@ -1,6 +1,7 @@
 package com.example.common.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -45,4 +46,8 @@ public class OrderItem {
     private LocalDateTime deliveryTime;
     // 创建时间
     private LocalDateTime createTime;
+
+    // 是否已评价(非数据库字段, 订单详情组装时按 t_review 实时填充, 供前端置灰"评价"按钮)
+    @TableField(exist = false)
+    private Boolean reviewed;
 }

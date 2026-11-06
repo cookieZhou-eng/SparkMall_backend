@@ -31,6 +31,24 @@ spring:
               predicates:
                 - Path=/order/**
 
+            # 订单评价: 商品评价查询公开, 提交/按订单查询需登录(过滤器白名单控制)
+            - id: review-route
+              uri: lb://order-service
+              predicates:
+                - Path=/review/**
+
+            # 退款售后(用户侧, 需登录)
+            - id: refund-route
+              uri: lb://order-service
+              predicates:
+                - Path=/refund/**
+
+            # 购物车(后端化, 需登录)
+            - id: cart-route
+              uri: lb://order-service
+              predicates:
+                - Path=/cart/**
+
             - id: user-route
               uri: lb://user-service
               predicates:
@@ -52,6 +70,27 @@ spring:
               uri: lb://product-service
               predicates:
                 - Path=/upload/**
+
+            # 管理端: 需登录 + admin 角色(网关 GlobalAuthFilter 校验 X-User-Role=admin)
+            - id: admin-user-route
+              uri: lb://user-service
+              predicates:
+                - Path=/admin/user/**
+
+            - id: admin-product-route
+              uri: lb://product-service
+              predicates:
+                - Path=/admin/product/**
+
+            - id: admin-order-route
+              uri: lb://order-service
+              predicates:
+                - Path=/admin/order/**
+
+            - id: admin-refund-route
+              uri: lb://order-service
+              predicates:
+                - Path=/admin/refund/**
           # 跨域配置: 前端 5173 访问网关 9001 时需要允许 CORS
           # 否则浏览器会拦截请求, 控制台报 CORS policy 错误
           globalcors:

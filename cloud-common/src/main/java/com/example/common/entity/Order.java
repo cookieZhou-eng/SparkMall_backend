@@ -56,4 +56,11 @@ public class Order {
     // 待支付剩余秒数(非数据库字段, 服务端按 createTime + 超时时间实时计算, 供前端倒计时展示)
     @TableField(exist = false)
     private Long remainingSeconds;
+
+    // 最近一次退款申请的状态/单号(非数据库字段, 订单列表组装时填充, 供前端展示"退款中"并控制申请按钮)
+    @TableField(exist = false)
+    private Integer refundStatus;
+
+    @TableField(exist = false)
+    private String refundNo;
 }

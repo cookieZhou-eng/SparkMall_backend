@@ -5,7 +5,10 @@ import com.example.order.dto.MerchantSoldOrderVO;
 import com.example.order.dto.MerchantStatsVO;
 import com.example.order.service.MerchantOrderService;
 import jakarta.annotation.Resource;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
 
 /**
  * 商家卖出订单控制器(薄控制器): 网关 /order/merchant/** 路由转发过来。
@@ -25,6 +28,8 @@ public class MerchantOrderController {
     /**
      * 我卖出的订单(按明细分页, 同一订单多个属于当前商家的明细合并为一个订单组)
      * @param logisticsStatus 可选, 按物流状态过滤: 0-待发货 1-已发货 2-已送达
+     * @param startTime 可选, 下单时间起(格式 yyyy-MM-dd HH:mm:ss)
+     * @param endTime 可选, 下单时间止(格式 yyyy-MM-dd HH:mm:ss)
      */
     @GetMapping("/sold")
     public Result<Result.PageData<MerchantSoldOrderVO>> sold(
@@ -32,9 +37,13 @@ public class MerchantOrderController {
             @RequestHeader("X-User-Role") String role,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size,
-            @RequestParam(required = false) Integer logisticsStatus) {
-        return Result.success(
-                merchantOrderService.soldOrders(merchantId, role, page, size, logisticsStatus));
+            @RequestParam(required = false) Integer logisticsStatus,
+            @RequestParam(required = false)
+            @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
+            @RequestParam(required = false)
+            @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime) {
+        return Result.success(merchantOrderService.soldOrders(
+                merchantId, role, page, size, logisticsStatus, startTime, endTime));
     }
 
     /**

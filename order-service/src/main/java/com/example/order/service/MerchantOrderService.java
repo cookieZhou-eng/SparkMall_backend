@@ -57,13 +57,16 @@ public class MerchantOrderService {
      */
     public Result.PageData<MerchantSoldOrderVO> soldOrders(Long merchantId, String role,
                                                            Integer page, Integer size,
-                                                           Integer logisticsStatus) {
+                                                           Integer logisticsStatus,
+                                                           LocalDateTime startTime, LocalDateTime endTime) {
         requireMerchant(role);
         Page<OrderItem> pageResult = orderItemMapper.selectPage(
                 new Page<>(page, size),
                 new LambdaQueryWrapper<OrderItem>()
                         .eq(OrderItem::getMerchantId, merchantId)
                         .eq(logisticsStatus != null, OrderItem::getLogisticsStatus, logisticsStatus)
+                        .ge(startTime != null, OrderItem::getCreateTime, startTime)
+                        .le(endTime != null, OrderItem::getCreateTime, endTime)
                         .orderByDesc(OrderItem::getCreateTime)
                         .orderByDesc(OrderItem::getId));
         List<OrderItem> items = pageResult.getRecords();

@@ -68,6 +68,15 @@ public class ProductController {
     }
 
     /**
+     * 批量查询商品(购物车列表/结算使用): 返回商品信息并填充可用库存 stock。
+     * 与 /{id} 不冲突: /batch 为字面量路径, 优先于单段变量匹配。
+     */
+    @PostMapping("/batch")
+    public Result<List<Product>> batch(@RequestBody List<Long> ids) {
+        return Result.success(productService.batch(ids));
+    }
+
+    /**
      * 锁定库存(下单未支付时由 order-service 通过 Feign 调用)
      */
     @PostMapping("/lockStock")
@@ -87,6 +96,17 @@ public class ProductController {
             return Result.fail(400, "释放库存参数不合法");
         }
         return Result.success(productService.releaseStock(req));
+    }
+
+    /**
+     * 退款回补库存(退款审核通过时由 order-service 调用): stock 加回, 销量回退
+     */
+    @PostMapping("/restoreStock")
+    public Result<Boolean> restoreStock(@RequestBody StockDeductRequest req) {
+        if (req == null || req.getProductId() == null || req.getCount() == null || req.getCount() <= 0) {
+            return Result.fail(400, "回补库存参数不合法");
+        }
+        return Result.success(productService.restoreStock(req));
     }
 
     /**

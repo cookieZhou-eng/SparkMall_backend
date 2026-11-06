@@ -41,13 +41,17 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
     //  - /user/password/reset 忘记密码重置(未登录时使用, 必须放行)
     //  - /upload/files       上传图片的静态资源(商品图公开浏览)。
     //    注意: /upload/image(POST 上传)不在白名单, 不匹配此前缀, 自动走 JWT 鉴权(需登录)
+    //  - /review/product     商品评价列表/统计(商品详情页公开浏览)。
+    //    注意只放行此子路径, POST /review(提交评价) 与 GET /review/order/** 仍需登录
     private static final List<String> PUBLIC_PREFIXES = List.of("/product", "/seckill",
             "/user/register", "/user/merchant", "/user/sms/send", "/user/password/reset",
-            "/upload/files");
+            "/upload/files", "/review/product");
     /** 需要商家角色的路径前缀(网关层做第一道角色校验, 业务侧 Service 再校验一次双保险):
      *  - /merchant/       商家商品管理(product-service)
      *  - /order/merchant  商家卖出订单/发货/统计(order-service) */
     private static final List<String> MERCHANT_PREFIXES = List.of("/merchant/", "/order/merchant");
+    /** 管理端路径前缀: 要求 JWT 中 role=admin(业务侧 Service 再做一次角色校验) */
+    private static final List<String> ADMIN_PREFIXES = List.of("/admin/");
 
     private final ReactiveStringRedisTemplate redisTemplate;
 
@@ -83,10 +87,15 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
                     if (Boolean.TRUE.equals(blocked)) {
                         return unauthorized(exchange, "登录已失效，请重新登录");
                     }
-                    // 3. 角色校验: 商家专属接口(/merchant/**、/order/merchant/**)要求 JWT 中 role=merchant
+                    // 3. 角色校验: 商家专属接口(/merchant/**、/order/merchant/**)要求 role=merchant;
+                    //    管理端接口(/admin/**)要求 role=admin
                     if (isMerchantPath(path)
                             && !"merchant".equals(claims.get("role"))) {
                         return forbidden(exchange, "无商家权限");
+                    }
+                    if (isAdminPath(path)
+                            && !"admin".equals(claims.get("role"))) {
+                        return forbidden(exchange, "无管理员权限");
                     }
                     // 4. 鉴权通过: 把已签名的用户身份透传下游(userId/username/role)
                     ServerHttpRequest mutated = request.mutate()
@@ -116,6 +125,16 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
     /** 是否商家专属路径: 命中任一商家前缀即要求 role=merchant */
     private boolean isMerchantPath(String path) {
         for (String p : MERCHANT_PREFIXES) {
+            if (path.startsWith(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 是否管理端路径: 命中管理端前缀即要求 role=admin */
+    private boolean isAdminPath(String path) {
+        for (String p : ADMIN_PREFIXES) {
             if (path.startsWith(p)) {
                 return true;
             }

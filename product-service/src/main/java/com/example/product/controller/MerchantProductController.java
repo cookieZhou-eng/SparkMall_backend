@@ -25,14 +25,19 @@ public class MerchantProductController {
 
     /**
      * 我的商品列表(含已下架), 按创建时间倒序
+     * @param name 可选, 商品名称模糊搜索
+     * @param categoryId 可选, 分类筛选(含所有子分类)
      */
     @GetMapping("/product/list")
     public Result<Result.PageData<Product>> list(
             @RequestHeader("X-User-Id") Long merchantId,
             @RequestHeader("X-User-Role") String role,
             @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "20") Integer size) {
-        return Result.success(merchantProductService.listMyProducts(merchantId, role, page, size));
+            @RequestParam(defaultValue = "20") Integer size,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) Long categoryId) {
+        return Result.success(
+                merchantProductService.listMyProducts(merchantId, role, page, size, name, categoryId));
     }
 
     /**

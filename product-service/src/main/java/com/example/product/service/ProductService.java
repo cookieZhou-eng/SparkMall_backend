@@ -22,6 +22,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
@@ -166,6 +167,29 @@ public class ProductService {
                 .eq(Product::getMerchantId, merchantId)
                 .eq(Product::getStatus, 1)
                 .orderByDesc(Product::getCreateTime));
+    }
+
+    /**
+     * 批量查询商品(购物车列表/结算时由 order-service 通过 Feign 调用)。
+     * 不限制上架状态: 已下架商品也要返回, 购物车据此标记"失效", 由前端提示用户移除。
+     * 同时填充非数据库字段 stock(可用库存 = stock - locked), 供购物车展示与加购上限校验。
+     */
+    public List<Product> batch(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<Product> products = productMapper.selectList(
+                new LambdaQueryWrapper<Product>().in(Product::getId, ids));
+        Map<Long, ProductStock> stockMap = productStockMapper.selectList(
+                        new LambdaQueryWrapper<ProductStock>().in(ProductStock::getProductId, ids))
+                .stream()
+                .collect(Collectors.toMap(ProductStock::getProductId, s -> s));
+        products.forEach(p -> {
+            ProductStock st = stockMap.get(p.getId());
+            int available = st == null ? 0 : Math.max(st.getStock() - st.getLocked(), 0);
+            p.setStock(available);
+        });
+        return products;
     }
 
     /**
@@ -334,12 +358,52 @@ public class ProductService {
                 LambdaUpdateWrapper<ProductStock> wrapper = Wrappers.lambdaUpdate();
                 wrapper.eq(ProductStock::getProductId,req.getProductId())
                         .apply("locked >= {0}",req.getCount())
-                        .setSql("locked = locked - {0}" + req.getCount());
+                        .setSql("locked = locked - {0}", req.getCount());
                 return productStockMapper.update(null,wrapper) > 0;
             } finally {
                 lock.unlock();
             }
         } catch (Exception e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * 退款回补库存(退款审核通过时由 order-service 调用)。
+     *
+     * 与 releaseStock 的区别:
+     *   - releaseStock 只把 locked 减回去(适用于"下单未支付就取消");
+     *   - restoreStock 是商品已真实卖出后退款, 需要把 stock 加回去, 同时回退销量。
+     * 用分布式锁 + 原子 SQL, 避免与同商品的扣减/锁定并发冲突。
+     */
+    public boolean restoreStock(StockDeductRequest req) {
+        if (req == null || req.getProductId() == null || req.getCount() == null || req.getCount() <= 0) {
+            return false;
+        }
+        RLock lock = redissonClient.getLock("stock:lock:" + req.getProductId());
+        try {
+            if (!lock.tryLock(3, 10, TimeUnit.SECONDS)) {
+                return false;
+            }
+            try {
+                LambdaUpdateWrapper<ProductStock> wrapper = Wrappers.lambdaUpdate();
+                wrapper.eq(ProductStock::getProductId, req.getProductId())
+                        .setSql("stock = stock + {0}", req.getCount());
+                int rows = productStockMapper.update(null, wrapper);
+                if (rows > 0) {
+                    // 退款后销量回退(GREATEST 防止出现负数)
+                    productMapper.update(null, Wrappers.<Product>lambdaUpdate()
+                            .eq(Product::getId, req.getProductId())
+                            .setSql("sales = GREATEST(sales - {0}, 0)", req.getCount()));
+                    // 库存/销量变更, 主动失效商品详情缓存, 保证前端立即可见
+                    evictCache(PRODUCT_DETAIL_KEY_PREFIX + req.getProductId(), CATEGORIES_KEY);
+                }
+                return rows > 0;
+            } finally {
+                lock.unlock();
+            }
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         }

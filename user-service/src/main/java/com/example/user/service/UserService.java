@@ -358,6 +358,7 @@ public class UserService {
         vo.setAvatar(user.getAvatar());
         vo.setGender(user.getGender());
         vo.setRole(user.getRole());
+        vo.setStatus(user.getStatus());
         vo.setShopName(user.getShopName());
         vo.setShopDesc(user.getShopDesc());
         vo.setCreateTime(user.getCreateTime());

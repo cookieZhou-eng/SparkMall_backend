@@ -1,6 +1,7 @@
 package com.example.common.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -45,4 +46,8 @@ public class Product {
     private Integer isDeleted;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
+
+    /** 可用库存(非数据库字段): 购物车/批量查询时由 product-service 从 t_product_stock 填充(stock - locked) */
+    @TableField(exist = false)
+    private Integer stock;
 }
