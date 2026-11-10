@@ -99,7 +99,7 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
                     }
                     // 4. 鉴权通过: 把已签名的用户身份透传下游(userId/username/role)
                     ServerHttpRequest mutated = request.mutate()
-                            .header("X-User-Id", claims.getSubject())
+                            .header(        "X-User-Id", claims.getSubject())
                             .header("X-User-Name", String.valueOf(claims.get("username")))
                             .header("X-User-Role", String.valueOf(claims.get("role")))
                             .build();

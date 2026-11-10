@@ -62,7 +62,19 @@ public class MerchantProductService {
         }
         wrapper.orderByDesc(Product::getCreateTime);
         Page<Product> pageResult = productMapper.selectPage(new Page<>(page, size), wrapper);
-        return new Result.PageData<>(pageResult.getTotal(), pageResult.getRecords());
+
+        // 回填库存: t_product 不含库存字段, 单独按商品 id 批量查 t_product_stock
+        List<Product> records = pageResult.getRecords();
+        if (!records.isEmpty()) {
+            List<Long> productIds = records.stream().map(Product::getId).toList();
+            List<ProductStock> stocks = productStockMapper.selectList(
+                    new LambdaQueryWrapper<ProductStock>().in(ProductStock::getProductId, productIds));
+            java.util.Map<Long, Integer> stockMap = stocks.stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            ProductStock::getProductId, ProductStock::getStock, (a, b) -> a));
+            records.forEach(p -> p.setStock(stockMap.getOrDefault(p.getId(), 0)));
+        }
+        return new Result.PageData<>(pageResult.getTotal(), records);
     }
 
     /** 递归收集分类及其所有子分类 id(与 C 端商品列表的分类筛选口径一致) */
