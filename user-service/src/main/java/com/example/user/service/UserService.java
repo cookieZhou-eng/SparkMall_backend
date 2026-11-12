@@ -325,16 +325,27 @@ public class UserService {
 
     /**
      * 公开查看商家信息: 仅允许查看 role=merchant 的用户。
-     * 附带累计销售额(totalSales): 订单数据在 order 库, 学习项目单库直查(t_order_item JOIN t_order),
+     * 附带累计销售量(totalSalesCount, 公开)与累计销售额(totalSales, 仅商家本人可见:
+     * viewerId 与商家 id 一致才回填, 其余置 null, 防止经营数据外泄)。
+     * 订单数据在 order 库, 学习项目单库直查(t_order_item JOIN t_order),
      * 微服务规范做法应走 Feign 调 order-service 聚合, 此处权衡简化(见 UserMapper 注释)。
      */
-    public UserVO merchantInfo(Long merchantId) {
+    public UserVO merchantInfo(Long merchantId, Long viewerId) {
         User user = requireUser(merchantId);
         if (!"merchant".equals(user.getRole())) {
             throw new BusinessException(404, "商家不存在");
         }
         UserVO vo = toVO(user);
-        vo.setTotalSales(userMapper.sumMerchantTotalSales(merchantId));
+        vo.setTotalSalesCount(userMapper.sumMerchantSalesCount(merchantId));
+        // 好评率: 该商家全部商品评价中 4~5 星占比(百分比, 保留 1 位小数); 无评价时为 null, 前端不展示
+        Long good = userMapper.countMerchantGoodReviews(merchantId);
+        Long total = userMapper.countMerchantReviews(merchantId);
+        if (total != null && total > 0 && good != null) {
+            vo.setPositiveRate(Math.round(good * 1000.0 / total) / 10.0);
+        }
+        if (viewerId != null && viewerId.equals(merchantId)) {
+            vo.setTotalSales(userMapper.sumMerchantTotalSales(merchantId));
+        }
         return vo;
     }
 

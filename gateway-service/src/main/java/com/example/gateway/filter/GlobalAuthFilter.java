@@ -69,14 +69,26 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
         if ("OPTIONS".equalsIgnoreCase(request.getMethod().name())) {
             return chain.filter(exchange);
         }
-        // 白名单直接放行
-        if (isWhiteList(path)) {
-            return chain.filter(exchange);
-        }
-
-        // 1. 提取 Bearer JWT 并校验签名/过期
         String token = extractToken(request);
         Claims claims = token == null ? null : JwtUtil.parseToken(token);
+
+        // 白名单/公开前缀: 不强制登录, 但若携带有效 token 也透传身份
+        // (如商家查看自己的店铺页 /user/merchant/{id} 时, 下游据此返回仅本人可见的销售额)
+        if (isWhiteList(path)) {
+            if (claims == null) {
+                return chain.filter(exchange);
+            }
+            return redisTemplate.hasKey(TOKEN_BLACKLIST_PREFIX + token)
+                    .flatMap(blocked -> {
+                        // 黑名单 token 视为未登录, 公开页仍放行(不弹 401 打扰浏览)
+                        if (Boolean.TRUE.equals(blocked)) {
+                            return chain.filter(exchange);
+                        }
+                        return chain.filter(exchange.mutate().request(withUser(request, claims)).build());
+                    });
+        }
+
+        // 1. 非公开接口: 必须携带有效 JWT
         if (claims == null) {
             return unauthorized(exchange, "未登录或登录已过期");
         }
@@ -98,13 +110,17 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
                         return forbidden(exchange, "无管理员权限");
                     }
                     // 4. 鉴权通过: 把已签名的用户身份透传下游(userId/username/role)
-                    ServerHttpRequest mutated = request.mutate()
-                            .header(        "X-User-Id", claims.getSubject())
-                            .header("X-User-Name", String.valueOf(claims.get("username")))
-                            .header("X-User-Role", String.valueOf(claims.get("role")))
-                            .build();
-                    return chain.filter(exchange.mutate().request(mutated).build());
+                    return chain.filter(exchange.mutate().request(withUser(request, claims)).build());
                 });
+    }
+
+    /** 把已解析的 JWT 身份透传为下游请求头(userId/username/role) */
+    private ServerHttpRequest withUser(ServerHttpRequest request, Claims claims) {
+        return request.mutate()
+                .header("X-User-Id", claims.getSubject())
+                .header("X-User-Name", String.valueOf(claims.get("username")))
+                .header("X-User-Role", String.valueOf(claims.get("role")))
+                .build();
     }
 
     /** 白名单: 登录/退出 + 商品/秒杀浏览(公开) */

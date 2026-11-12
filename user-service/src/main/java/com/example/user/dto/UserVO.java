@@ -24,4 +24,8 @@ public class UserVO {
     private LocalDateTime createTime; // 注册时间
     /** 累计销售额(仅商家公开信息接口返回, 已支付订单的商品金额合计, 顾客为 null) */
     private BigDecimal totalSales;
+    /** 累计销售量(仅商家公开信息接口返回, 已支付订单的商品件数合计, 顾客为 null) */
+    private Long totalSalesCount;
+    /** 好评率(百分比 0~100, 该商家全部商品评价中 4~5 星占比; 无评价时为 null) */
+    private Double positiveRate;
 }

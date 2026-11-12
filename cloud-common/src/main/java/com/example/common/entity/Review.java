@@ -1,6 +1,7 @@
 package com.example.common.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -34,6 +35,9 @@ public class Review {
     private String images;
     /** 是否匿名: 1-匿名 0-实名 */
     private Boolean anonymous;
+    /** 展示用昵称(非数据库字段): 由服务端脱敏后回填, 前端直接展示 */
+    @TableField(exist = false)
+    private String username;
     @TableLogic
     private Integer isDeleted;
     private LocalDateTime createTime;

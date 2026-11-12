@@ -149,11 +149,15 @@ public class UserController {
     }
 
     /**
-     * 公开查看商家信息: 仅 role=merchant 的用户可查
+     * 公开查看商家信息: 仅 role=merchant 的用户可查。
+     * 累计销售额仅商家本人可见(请求头 X-User-Id 与商家 id 一致才回填), 销售量公开。
      */
     @GetMapping("/merchant/{id}")
-    public Result<UserVO> merchantInfo(@PathVariable Long id) {
-        return Result.success(userService.merchantInfo(id));
+    public Result<UserVO> merchantInfo(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-User-Id", required = false) String xUserId) {
+        Long viewerId = (xUserId == null || xUserId.isBlank()) ? null : Long.valueOf(xUserId);
+        return Result.success(userService.merchantInfo(id, viewerId));
     }
 
     /**

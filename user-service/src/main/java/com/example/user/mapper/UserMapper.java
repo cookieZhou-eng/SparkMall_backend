@@ -26,4 +26,35 @@ public interface UserMapper extends BaseMapper<User> {
             + " WHERE i.merchant_id = #{merchantId}"
             + " AND o.status IN (2, 3, 4) AND o.is_deleted = 0")
     BigDecimal sumMerchantTotalSales(@Param("merchantId") Long merchantId);
+
+    /**
+     * 商家累计销售量 = SUM(t_order_item.count), 统计口径与销售额一致(已支付订单, 状态 2/3/4)。
+     * 返回 Long 以兼容 SUM 为 NULL 时 COALESCE 兜底的 0 值。
+     */
+    @Select("SELECT COALESCE(SUM(i.count), 0)"
+            + " FROM t_order_item i"
+            + " JOIN t_order o ON i.order_id = o.id"
+            + " WHERE i.merchant_id = #{merchantId}"
+            + " AND o.status IN (2, 3, 4) AND o.is_deleted = 0")
+    Long sumMerchantSalesCount(@Param("merchantId") Long merchantId);
+
+    /**
+     * 商家累计评价数 = 该商家全部商品收到的真实评价数(t_review JOIN t_product 按 merchant_id 过滤)。
+     */
+    @Select("SELECT COUNT(*)"
+            + " FROM t_review r"
+            + " JOIN t_product p ON r.product_id = p.id"
+            + " WHERE p.merchant_id = #{merchantId}"
+            + " AND p.is_deleted = 0 AND r.is_deleted = 0")
+    Long countMerchantReviews(@Param("merchantId") Long merchantId);
+
+    /**
+     * 商家好评数 = 评分 >= 4 星的评价数(统计口径: 4~5 星算好评, 与主流电商一致)。
+     */
+    @Select("SELECT COALESCE(SUM(r.rating >= 4), 0)"
+            + " FROM t_review r"
+            + " JOIN t_product p ON r.product_id = p.id"
+            + " WHERE p.merchant_id = #{merchantId}"
+            + " AND p.is_deleted = 0 AND r.is_deleted = 0")
+    Long countMerchantGoodReviews(@Param("merchantId") Long merchantId);
 }

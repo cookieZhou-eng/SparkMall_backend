@@ -17,7 +17,10 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 订单评价业务。
@@ -123,7 +126,12 @@ public class ReviewService {
     }
 
     /**
-     * 商品评价分页(公开接口)。匿名评价会把 userId 置空, 避免对外暴露用户ID。
+     * 商品评价分页(公开接口): 真实评价 + 虚拟"默认好评"合并展示。
+     *
+     * 默认好评规则: 已完成订单(status=4)中未写评价的明细, 以 5 星 + 空内容的形式
+     * 虚拟补进评价列表(拼多多式"默认好评"), 用户评价后即被真实评价取代(NOT EXISTS 过滤)。
+     * 昵称一律脱敏(如 z***n), 匿名评价显示"匿名用户", 避免泄露真实身份。
+     * 分页采用"全局虚拟排序": 真实评价占前 realTotal 槽位, 虚拟好评紧随其后。
      */
     public Result.PageData<Review> pageByProduct(Long productId, Integer page, Integer size) {
         if (productId == null) {
@@ -131,36 +139,99 @@ public class ReviewService {
         }
         int p = page == null || page < 1 ? 1 : page;
         int s = size == null || size < 1 ? 10 : Math.min(size, MAX_PAGE_SIZE);
+
         Page<Review> pageResult = reviewMapper.selectPage(new Page<>(p, s),
                 new LambdaQueryWrapper<Review>()
                         .eq(Review::getProductId, productId)
                         .orderByDesc(Review::getCreateTime));
-        pageResult.getRecords().forEach(r -> {
-            if (Boolean.TRUE.equals(r.getAnonymous())) {
-                r.setUserId(null);
+        List<Review> records = new ArrayList<>(pageResult.getRecords());
+        long realTotal = pageResult.getTotal();
+        Long unreviewed = reviewMapper.countUnreviewed(productId);
+        long virtualTotal = unreviewed == null ? 0L : unreviewed;
+        long total = realTotal + virtualTotal;
+
+        // 当前页剩余槽位用虚拟默认好评补齐(真实评价全局占 [0, realTotal), 虚拟占其后)
+        int start = (p - 1) * s;
+        int vStart = Math.max(0, start - (int) realTotal);
+        int need = s - records.size();
+        if (need > 0 && vStart < virtualTotal) {
+            List<Map<String, Object>> rows = reviewMapper.selectUnreviewed(productId);
+            for (int i = vStart; i < Math.min(rows.size(), vStart + need); i++) {
+                records.add(virtualDefaultReview(rows.get(i)));
             }
-        });
-        return new Result.PageData<>(pageResult.getTotal(), pageResult.getRecords());
+        }
+
+        // 昵称脱敏回填: 匿名 -> "匿名用户", 实名 -> z***n; 虚拟好评已带脱敏昵称不再处理
+        List<Long> userIds = records.stream()
+                .filter(r -> r.getUsername() == null && r.getUserId() != null)
+                .map(Review::getUserId).distinct().toList();
+        Map<Long, String> names = userIds.isEmpty() ? Map.of()
+                : reviewMapper.selectUsernames(userIds).stream().collect(Collectors.toMap(
+                        m -> ((Number) m.get("id")).longValue(),
+                        m -> String.valueOf(m.get("username"))));
+        for (Review r : records) {
+            if (r.getUsername() != null) {
+                continue;
+            }
+            if (Boolean.TRUE.equals(r.getAnonymous())) {
+                r.setUsername("匿名用户");
+            } else {
+                String name = names.get(r.getUserId());
+                r.setUsername(name == null ? "已购用户" : maskName(name));
+            }
+        }
+
+        return new Result.PageData<>(total, records);
     }
 
     /**
-     * 商品评价统计: 平均分 + 总数
+     * 构造一条虚拟默认好评: 5 星 + 无文字内容, id 取负的明细 id(不与真实自增 id 冲突, 前端可作 key)
+     */
+    private Review virtualDefaultReview(Map<String, Object> row) {
+        Review r = new Review();
+        long orderItemId = ((Number) row.get("orderItemId")).longValue();
+        r.setId(-orderItemId);
+        r.setOrderItemId(orderItemId);
+        r.setRating(5);
+        r.setContent(null);
+        r.setAnonymous(false);
+        r.setUsername(maskName(String.valueOf(row.get("username"))));
+        Object time = row.get("createTime");
+        r.setCreateTime(time instanceof LocalDateTime t ? t : LocalDateTime.now());
+        return r;
+    }
+
+    /** 昵称脱敏: 首字符 + *** + 尾字符(长度<=2 只保留首字符) */
+    private String maskName(String name) {
+        if (name == null || name.isBlank()) {
+            return "神秘用户";
+        }
+        String n = name.trim();
+        if (n.length() <= 2) {
+            return n.charAt(0) + "***";
+        }
+        return n.charAt(0) + "***" + n.charAt(n.length() - 1);
+    }
+
+    /**
+     * 商品评价统计: 平均分 + 总数(含虚拟默认好评)。
+     * 平均分 = (真实总分 + 5*默认好评数) / 总条数, 与评价列表口径一致。
      */
     public ReviewStatsVO stats(Long productId) {
         if (productId == null) {
             throw new BusinessException(400, "商品ID不能为空");
         }
-        ReviewStatsVO stats = reviewMapper.stats(productId);
-        if (stats == null) {
+        ReviewStatsVO real = reviewMapper.stats(productId);
+        long realTotal = real == null || real.getTotal() == null ? 0L : real.getTotal();
+        double realAvg = real == null || real.getAvgRating() == null ? 0.0 : real.getAvgRating();
+        Long unreviewed = reviewMapper.countUnreviewed(productId);
+        long virtualTotal = unreviewed == null ? 0L : unreviewed;
+        long total = realTotal + virtualTotal;
+        if (total == 0) {
             return new ReviewStatsVO(0.0, 0L);
         }
-        if (stats.getTotal() == null) {
-            stats.setTotal(0L);
-        }
-        if (stats.getAvgRating() == null) {
-            stats.setAvgRating(0.0);
-        }
-        return stats;
+        double avg = (realAvg * realTotal + 5.0 * virtualTotal) / total;
+        return new ReviewStatsVO(Math.round(avg * 10.0) / 10.0, total);
     }
 
     /**

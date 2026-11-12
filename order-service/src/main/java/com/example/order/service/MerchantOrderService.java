@@ -126,7 +126,9 @@ public class MerchantOrderService {
 
     /**
      * 确认送达: 校验明细归属 + 已发货状态 -> logistics_status 1->2, 写 delivery_time。
-     * 送达后订单仍保持 status=3(已发货/待收货), 需用户调用 /order/confirm 才置为 4(已完成), 不自动完成。
+     * 送达后若订单所有明细均已发货(>=1)则把订单 2->3(兜底补推, 幂等):
+     * 正常流程 ship 时已推进, 此处防历史数据/异常路径漏推导致"明细已送达订单仍停在待发货"。
+     * 全部送达后订单保持 status=3(待收货), 需用户调用 /order/confirm 才置为 4(已完成), 不自动完成。
      */
     @Transactional
     public void deliver(Long merchantId, String role, Long itemId) {
@@ -144,7 +146,8 @@ public class MerchantOrderService {
         if (updated == 0) {
             throw new BusinessException(400, "确认送达失败, 商品状态已变更, 请刷新后重试");
         }
-        // 即使全部明细都已送达也保持 status=3, 由用户确认收货后置为 4
+        // 兜底: 全部明细均已发货(>=1)时补推订单 2->3; 订单已是 3 时条件更新不生效, 幂等
+        promoteOrderToShipped(item.getOrderNo());
     }
 
     /**
