@@ -35,6 +35,16 @@
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
         </dependency>
+        <!-- OpenFeign 远程调用: 管理端商品/审核列表调用 user-service 批量回填商家店铺名 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-openfeign</artifactId>
+        </dependency>
+        <!-- 负载均衡(Feign 走服务名调用必需) -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
+        </dependency>
 
         <!-- MyBatis-Plus (Spring Boot 4 专用) -->
         <dependency>

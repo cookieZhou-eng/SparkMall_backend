@@ -88,8 +88,11 @@ public class MerchantProductService {
     }
 
     /**
-     * 新增商品: 校验分类/价格/库存 → 插入 t_product(上架+merchantId) → 插入 t_product_stock。
+     * 新增商品: 校验分类/价格/库存 → 插入 t_product(下架+待审核+merchantId) → 插入 t_product_stock。
      * 事务保证商品与库存记录同成败(库存插入失败则商品也回滚)。
+     *
+     * 平台审核规则: 新增商品默认 status=0(下架) + auditStatus=0(待审核),
+     * 必须由管理员审核通过后商家才能上架售卖。
      */
     @Transactional
     public Long createProduct(Long merchantId, String role, MerchantProductRequest req) {
@@ -106,7 +109,8 @@ public class MerchantProductService {
         product.setPrice(req.getPrice());
         product.setOriginalPrice(req.getOriginalPrice());
         product.setSales(0);
-        product.setStatus(1); // 新增默认上架
+        product.setStatus(0);       // 待审核期间强制下架
+        product.setAuditStatus(0);  // 新增默认待审核, 审核通过后才允许上架
         productMapper.insert(product); // 自增主键回填 product.getId()
 
         ProductStock stock = new ProductStock();
@@ -120,6 +124,9 @@ public class MerchantProductService {
     /**
      * 编辑商品: 校验归属 → 更新商品基本信息 → 可选更新库存(stock 非空时) → 失效详情缓存。
      * 走 selectById 拿到带 version 的实体后 updateById, 乐观锁自动生效。
+     *
+     * 平台审核规则: 商品内容(名称/图文/价格/分类)变更视为新内容, 重新进入待审核
+     * (auditStatus=0), 同时强制下架(status=0), 审核通过前不可上架售卖, 防止绕过审核。
      */
     @Transactional
     public void updateProduct(Long merchantId, String role, MerchantProductRequest req) {
@@ -134,7 +141,18 @@ public class MerchantProductService {
         product.setDetailImages(req.getDetailImages());
         product.setPrice(req.getPrice());
         product.setOriginalPrice(req.getOriginalPrice());
+        // 内容变更 → 重新提审: 清空上次审核结论, 强制下架等待管理员复审
+        product.setAuditStatus(0);
+        product.setAuditReason(null);
+        product.setAuditTime(null);
+        product.setStatus(0);
         productMapper.updateById(product);
+        // MP updateById 默认忽略 null 字段, 审核备注/时间需用 UpdateWrapper 显式置 NULL
+        productMapper.update(null,
+                new LambdaUpdateWrapper<Product>()
+                        .eq(Product::getId, product.getId())
+                        .set(Product::getAuditReason, null)
+                        .set(Product::getAuditTime, null));
 
         // 可选修改库存: stock 传入且 >=0 时覆盖可用库存; locked(未支付订单占用)不动,
         // 普通下单仍按 stock 扣减
@@ -153,7 +171,10 @@ public class MerchantProductService {
     }
 
     /**
-     * 上架/下架切换: 校验归属 → 更新 status → 失效详情缓存。
+     * 上架/下架切换: 校验归属 → 上架校验审核状态 → 更新 status → 失效详情缓存。
+     *
+     * 审核门禁: 只有 auditStatus=1(审核通过) 的商品才允许上架;
+     * 待审核提示等待复审, 已拒绝时透出拒绝原因, 防止未审核商品流入市场。
      */
     public void updateStatus(Long merchantId, String role, Long productId, MerchantProductStatusRequest req) {
         requireMerchant(role);
@@ -161,6 +182,14 @@ public class MerchantProductService {
             throw new BusinessException(400, "status 只能是 0(下架) 或 1(上架)");
         }
         Product product = requireOwnedProduct(merchantId, productId);
+        if (req.getStatus() == 1 && !Integer.valueOf(1).equals(product.getAuditStatus())) {
+            if (Integer.valueOf(2).equals(product.getAuditStatus())) {
+                String reason = product.getAuditReason() == null || product.getAuditReason().isBlank()
+                        ? "" : "，原因: " + product.getAuditReason();
+                throw new BusinessException(400, "商品审核未通过" + reason + "，修改商品后重新提交审核");
+            }
+            throw new BusinessException(400, "商品正在等待管理员审核，审核通过后才能上架");
+        }
         product.setStatus(req.getStatus());
         productMapper.updateById(product);
         // 下架/重新上架都失效详情缓存, C 端列表只查上架商品不受缓存影响

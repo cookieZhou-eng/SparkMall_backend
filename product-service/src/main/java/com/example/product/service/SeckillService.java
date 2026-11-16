@@ -64,6 +64,13 @@ public class SeckillService {
                 return false;
             }
             try {
+                // 审核门禁: 只有"审核通过且上架中"的商品才允许开启秒杀, 未过审商品不可流入市场
+                com.example.common.entity.Product product = productMapper.selectById(productId);
+                if (product == null
+                        || !Integer.valueOf(1).equals(product.getStatus())
+                        || !Integer.valueOf(1).equals(product.getAuditStatus())) {
+                    return false;
+                }
                 ProductStock ps = productStockMapper.selectOne(
                         new LambdaQueryWrapper<ProductStock>().eq(ProductStock::getProductId, productId));
                 if (ps == null || ps.getStock() == null) {

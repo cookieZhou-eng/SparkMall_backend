@@ -20,8 +20,9 @@ public class AdminOrderController {
     private AdminOrderService adminOrderService;
 
     /**
-     * 全量订单分页
-     * @param status 可选: 1-待支付 2-已支付/待发货 3-已发货 4-已完成 5-已取消
+     * 全局订单分页
+     * @param status     可选: 1-待支付 2-已支付/待发货 3-已发货 4-已完成 5-已取消
+     * @param merchantId 可选: 按商家筛选(订单明细含该商家商品, 平台自营传 0 查 merchant_id 为空的订单)
      */
     @GetMapping("/list")
     public Result<Result.PageData<Order>> list(
@@ -29,9 +30,10 @@ public class AdminOrderController {
             @RequestParam(required = false) Integer status,
             @RequestParam(required = false) String orderNo,
             @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) Long merchantId,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size) {
-        return Result.success(adminOrderService.list(role, status, orderNo, userId, page, size));
+        return Result.success(adminOrderService.list(role, status, orderNo, userId, merchantId, page, size));
     }
 
     /**

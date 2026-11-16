@@ -49,12 +49,16 @@ public class ProductController {
 
     /**
      * 商品详情(Cache-Aside 在 Service 中实现)
+     * 审核门禁: 只有"审核通过且上架中"的商品对 C 端可见, 待审核/被拒/下架商品返回 404,
+     * 同时拦截 order-service 下单链路(下单也走此接口取价), 保证未审核商品不可购买。
      */
     @GetMapping("/{id}")
     public Result<Product> getById(@PathVariable Long id) {
         Product product = productService.getById(id);
-        if (product == null) {
-            return Result.fail(404, "商品不存在");
+        if (product == null
+                || !Integer.valueOf(1).equals(product.getStatus())
+                || !Integer.valueOf(1).equals(product.getAuditStatus())) {
+            return Result.fail(404, "商品不存在或已下架");
         }
         return Result.success(product);
     }

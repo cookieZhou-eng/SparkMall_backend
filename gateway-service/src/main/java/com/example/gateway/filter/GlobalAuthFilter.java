@@ -69,6 +69,14 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
         if ("OPTIONS".equalsIgnoreCase(request.getMethod().name())) {
             return chain.filter(exchange);
         }
+
+        // 内部接口封堵: /internal/** 为服务间 Feign 专用路径, 没有网关路由;
+        // 但 Nacos discovery locator 会自动生成 /{service-name}/internal/** 形式的路由,
+        // 必须在此显式拦截, 防止外部请求借自动路由绕过鉴权访问内部接口。
+        if (isInternalPath(path)) {
+            return forbidden(exchange, "无权访问内部接口");
+        }
+
         String token = extractToken(request);
         Claims claims = token == null ? null : JwtUtil.parseToken(token);
 
@@ -152,6 +160,16 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
     private boolean isAdminPath(String path) {
         for (String p : ADMIN_PREFIXES) {
             if (path.startsWith(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 是否内部服务接口路径: 路径任一段等于 internal 即拦截(覆盖 /internal/** 与 /{service}/internal/**) */
+    private boolean isInternalPath(String path) {
+        for (String segment : path.split("/")) {
+            if ("internal".equals(segment)) {
                 return true;
             }
         }

@@ -38,6 +38,16 @@ public class Product {
     private BigDecimal originalPrice;
     private Integer sales;
     private Integer status;
+    /**
+     * 审核状态: 0-待审核 1-审核通过 2-审核拒绝。
+     * 平台规则: 商家新增/编辑商品后必须经管理员审核通过(audit_status=1)才允许上架售卖;
+     * 审核通过前 status 强制为 0(下架), 上架接口会校验本字段。
+     */
+    private Integer auditStatus;
+    /** 审核备注(拒绝原因), 审核通过时清空 */
+    private String auditReason;
+    /** 审核时间(通过/拒绝时写入) */
+    private LocalDateTime auditTime;
     /** 商家用户 id(商家发布的商品才有值, 平台自营为 null) */
     private Long merchantId;
     @Version
@@ -50,4 +60,7 @@ public class Product {
     /** 可用库存(非数据库字段): 购物车/批量查询时由 product-service 从 t_product_stock 填充(stock - locked) */
     @TableField(exist = false)
     private Integer stock;
+    /** 商家店铺名(非数据库字段): 管理端商品/审核列表由 user-service 批量查询回填, 便于运营确认归属 */
+    @TableField(exist = false)
+    private String merchantShopName;
 }

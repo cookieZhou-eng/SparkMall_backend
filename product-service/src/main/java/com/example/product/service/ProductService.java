@@ -125,7 +125,8 @@ public class ProductService {
 
         // LambdaQueryWrapper: 用方法引用构造 WHERE 条件, 编译期校验字段名, 避免硬编码字符串
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<Product>()
-                .eq(Product::getStatus, 1);                              // 只查上架商品
+                .eq(Product::getStatus, 1)                              // 只查上架商品
+                .eq(Product::getAuditStatus, 1);                        // 审核门禁: 未过审商品不对 C 端可见
 
         // 排序: 按前端传入的排序方式; 未指定时保持默认(创建时间倒序)
         if ("sales".equals(sort)) {
@@ -160,12 +161,13 @@ public class ProductService {
 
     /**
      * 按商家查上架商品(公开, 商家主页使用):
-     * 只查 status=1 上架且未删除(@TableLogic 自动过滤), 按创建时间倒序。
+     * 只查 status=1 上架且审核通过(audit_status=1)、未删除(@TableLogic 自动过滤), 按创建时间倒序。
      */
     public List<Product> listByMerchant(Long merchantId) {
         return productMapper.selectList(new LambdaQueryWrapper<Product>()
                 .eq(Product::getMerchantId, merchantId)
                 .eq(Product::getStatus, 1)
+                .eq(Product::getAuditStatus, 1)
                 .orderByDesc(Product::getCreateTime));
     }
 

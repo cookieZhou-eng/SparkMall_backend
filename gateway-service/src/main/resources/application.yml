@@ -77,6 +77,12 @@ spring:
               predicates:
                 - Path=/admin/user/**
 
+            # 管理端商家管理(商家列表/店铺信息/启用禁用商家)
+            - id: admin-merchant-route
+              uri: lb://user-service
+              predicates:
+                - Path=/admin/merchant/**
+
             - id: admin-product-route
               uri: lb://product-service
               predicates:

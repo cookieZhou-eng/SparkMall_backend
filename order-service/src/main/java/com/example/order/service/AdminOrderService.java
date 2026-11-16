@@ -36,10 +36,11 @@ public class AdminOrderService {
     private OrderService orderService;
 
     /**
-     * 全量订单分页, 支持状态、订单号、用户筛选
+     * 全局订单分页, 支持状态、订单号、用户、商家筛选。
+     * 商家筛选通过明细表 EXISTS 子查询实现(t_order 主表无 merchant_id, 同一订单可含多个商家明细)。
      */
     public Result.PageData<Order> list(String role, Integer status, String orderNo,
-                                       Long userId, Integer page, Integer size) {
+                                       Long userId, Long merchantId, Integer page, Integer size) {
         checkAdmin(role);
         int p = page == null || page < 1 ? 1 : page;
         int s = size == null || size < 1 ? 10 : Math.min(size, MAX_PAGE_SIZE);
@@ -53,6 +54,16 @@ public class AdminOrderService {
         }
         if (userId != null) {
             wrapper.eq(Order::getUserId, userId);
+        }
+        if (merchantId != null) {
+            if (merchantId == 0L) {
+                // 0 = 平台自营: 明细 merchant_id 为空的订单
+                wrapper.exists("SELECT 1 FROM t_order_item oi WHERE oi.order_id = t_order.id "
+                        + "AND oi.merchant_id IS NULL");
+            } else {
+                wrapper.exists("SELECT 1 FROM t_order_item oi WHERE oi.order_id = t_order.id "
+                        + "AND oi.merchant_id = {0}", merchantId);
+            }
         }
         wrapper.orderByDesc(Order::getCreateTime);
 
