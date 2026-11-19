@@ -6,6 +6,7 @@ import com.example.common.dto.SeckillConfirmRequest;
 import com.example.common.dto.StockDeductRequest;
 import com.example.common.entity.Order;
 import com.example.common.entity.OrderItem;
+import com.example.common.entity.OrderLogistics;
 import com.example.common.entity.Payment;
 import com.example.common.entity.Product;
 import com.example.common.entity.Refund;
@@ -108,6 +109,8 @@ public class OrderService {
     private StringRedisTemplate stringRedisTemplate;
     @Resource
     private RabbitTemplate rabbitTemplate;
+    @Resource
+    private LogisticsService logisticsService;
 
     /** 待支付超时时间(分钟), 可在 order-service 的 application.yaml 里覆盖 */
     @Value("${app.order.expire-minutes:30}")
@@ -386,8 +389,24 @@ public class OrderService {
             return null;
         }
         fillItems(List.of(order));
+        fillLogisticsTraces(order);
         fillRemainingSeconds(List.of(order));
         return order;
+    }
+
+    /**
+     * 详情页填充物流轨迹时间线(列表页只需物流单本身, 不查轨迹, 控制开销)。
+     * 已发货明细的物流单批量一次 IN 查询轨迹, 按 trace_time 升序。
+     */
+    private void fillLogisticsTraces(Order order) {
+        List<OrderLogistics> logisticsList = order.getItems() == null ? List.of()
+                : order.getItems().stream()
+                        .map(OrderItem::getLogistics)
+                        .filter(l -> l != null)
+                        .collect(Collectors.toList());
+        if (!logisticsList.isEmpty()) {
+            logisticsService.fillTraces(logisticsList);
+        }
     }
 
     /** 批量给订单填充商品明细: 一次 IN 查询所有 orderId 的 items, 按 orderId 分组 */
@@ -401,8 +420,23 @@ public class OrderService {
                 .stream()
                 .collect(Collectors.groupingBy(OrderItem::getOrderId));
         orders.forEach(o -> o.setItems(group.getOrDefault(o.getId(), List.of())));
+        fillItemLogistics(group);
         fillReviewedFlags(orders, orderIds);
         fillRefundStatus(orders, orderIds);
+    }
+
+    /**
+     * 批量填充明细的物流单(承运商/运单号/轨迹状态, 一次 IN 查询避免 N+1)。
+     * 未发货的明细没有物流单, logistics 保持 null; 详情页再由 fillLogisticsTraces 填充轨迹时间线。
+     */
+    private void fillItemLogistics(Map<Long, List<OrderItem>> group) {
+        List<Long> itemIds = group.values().stream()
+                .flatMap(List::stream)
+                .map(OrderItem::getId)
+                .collect(Collectors.toList());
+        Map<Long, OrderLogistics> logisticsMap = logisticsService.mapByItemIds(itemIds);
+        group.values().forEach(items ->
+                items.forEach(item -> item.setLogistics(logisticsMap.get(item.getId()))));
     }
 
     /**

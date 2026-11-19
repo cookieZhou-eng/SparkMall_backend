@@ -2,6 +2,7 @@ package com.example.user.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.common.constant.AuthKeys;
 import com.example.common.entity.User;
 import com.example.common.result.Result;
 import com.example.user.dto.UserVO;
@@ -10,11 +11,13 @@ import com.example.user.feign.ProductFeignClient;
 import com.example.user.mapper.UserMapper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -33,6 +36,9 @@ public class AdminMerchantService {
 
     @Resource
     private UserMapper userMapper;
+    /** 禁用/启用商家时同步 Redis 状态键, 网关据此即时拦截存量 token */
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
     @Resource
     private ProductFeignClient productFeignClient;
 
@@ -109,6 +115,10 @@ public class AdminMerchantService {
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<User>lambdaUpdate()
                         .eq(User::getId, id)
                         .set(User::getStatus, status));
+        // 同步账号状态到 Redis: 禁用→"0"(存量 token 立即失效), 启用→"1"(恢复),
+        // 与用户管理的禁用逻辑一致, 由网关统一拦截
+        stringRedisTemplate.opsForValue().set(
+                AuthKeys.USER_STATUS_PREFIX + id, status == 1 ? "1" : "0", 7, TimeUnit.DAYS);
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("offShelfCount", 0);

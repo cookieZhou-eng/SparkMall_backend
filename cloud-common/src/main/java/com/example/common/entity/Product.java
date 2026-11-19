@@ -48,6 +48,12 @@ public class Product {
     private String auditReason;
     /** 审核时间(通过/拒绝时写入) */
     private LocalDateTime auditTime;
+    /**
+     * 平台强制下架锁: 0-否 1-是。
+     * 管理员强制下架商品时置 1, 此时商家无法直接重新上架(与商家自主下架区分),
+     * 需商家编辑商品重新提审(审核通过自动解锁)或管理员强制上架(解锁)后方可售卖。
+     */
+    private Integer adminLocked;
     /** 商家用户 id(商家发布的商品才有值, 平台自营为 null) */
     private Long merchantId;
     @Version

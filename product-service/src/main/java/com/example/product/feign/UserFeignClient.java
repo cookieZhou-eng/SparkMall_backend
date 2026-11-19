@@ -23,4 +23,12 @@ public interface UserFeignClient {
      */
     @GetMapping("/internal/user/merchant/batch")
     Result<List<MerchantBriefDTO>> merchantBatch(@RequestParam("ids") String ids);
+
+    /**
+     * 查询商家账号是否启用(role=merchant 且 status=1)。
+     * 用于商品上架/新增/编辑前的账号状态校验, 防止被禁用商家利用存量 token 继续操作商品
+     * (与网关的账号状态拦截互为双保险)。
+     */
+    @GetMapping("/internal/user/merchant/enabled")
+    Result<Boolean> merchantEnabled(@RequestParam("id") Long id);
 }

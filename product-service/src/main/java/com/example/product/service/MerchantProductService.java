@@ -13,7 +13,9 @@ import com.example.product.exception.BusinessException;
 import com.example.product.mapper.CategoryMapper;
 import com.example.product.mapper.ProductMapper;
 import com.example.product.mapper.ProductStockMapper;
+import com.example.product.feign.UserFeignClient;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,9 +30,12 @@ import java.util.List;
  *  - 网关 /merchant/** 路由已校验 JWT 且 role=merchant 并透传 X-User-Id/X-User-Role,
  *    本 Service 仍对 role 做二次校验(双保险, 防止直连绕过网关)。
  *  - 商品归属校验: 所有写操作必须 merchant_id = 当前商家, 否则抛 BusinessException(403)。
+ *  - 商家账号状态校验: 新增/编辑/上架前经 Feign 校验商家账号未被禁用
+ *    (第二重保险: 正常情况下网关的账号状态拦截已挡掉被禁商家的请求)。
  *  - 新增商品 @Transactional 保证 t_product + t_product_stock 两条插入同成败;
  *    编辑/上下架/删除后主动失效商品详情缓存(复用 ProductService 的缓存 key)。
  */
+@Slf4j
 @Service
 public class MerchantProductService {
 
@@ -42,6 +47,8 @@ public class MerchantProductService {
     private ProductStockMapper productStockMapper;
     @Resource
     private ProductService productService;
+    @Resource
+    private UserFeignClient userFeignClient;
 
     /**
      * 我的商品列表(含已下架), 按创建时间倒序。
@@ -97,6 +104,7 @@ public class MerchantProductService {
     @Transactional
     public Long createProduct(Long merchantId, String role, MerchantProductRequest req) {
         requireMerchant(role);
+        requireMerchantEnabled(merchantId);
         validateRequest(req, false);
 
         Product product = new Product();
@@ -131,6 +139,7 @@ public class MerchantProductService {
     @Transactional
     public void updateProduct(Long merchantId, String role, MerchantProductRequest req) {
         requireMerchant(role);
+        requireMerchantEnabled(merchantId);
         validateRequest(req, true);
         Product product = requireOwnedProduct(merchantId, req.getId());
 
@@ -141,10 +150,12 @@ public class MerchantProductService {
         product.setDetailImages(req.getDetailImages());
         product.setPrice(req.getPrice());
         product.setOriginalPrice(req.getOriginalPrice());
-        // 内容变更 → 重新提审: 清空上次审核结论, 强制下架等待管理员复审
+        // 内容变更 → 重新提审: 清空上次审核结论, 强制下架等待管理员复审;
+        // 同时解除平台下架锁(内容已是新版本, 走新一轮审核流程)
         product.setAuditStatus(0);
         product.setAuditReason(null);
         product.setAuditTime(null);
+        product.setAdminLocked(0);
         product.setStatus(0);
         productMapper.updateById(product);
         // MP updateById 默认忽略 null 字段, 审核备注/时间需用 UpdateWrapper 显式置 NULL
@@ -182,6 +193,15 @@ public class MerchantProductService {
             throw new BusinessException(400, "status 只能是 0(下架) 或 1(上架)");
         }
         Product product = requireOwnedProduct(merchantId, productId);
+        // 上架属"扩大销售面"的写操作, 必须校验商家账号未被禁用(下架/查看不受限)
+        if (req.getStatus() == 1) {
+            requireMerchantEnabled(merchantId);
+            // 平台强制下架的商品: 商家不能直接复售, 须编辑重新提审或联系管理员解锁
+            if (Integer.valueOf(1).equals(product.getAdminLocked())) {
+                throw new BusinessException(403,
+                        "该商品已被平台下架，请编辑商品内容重新提交审核，审核通过后方可上架");
+            }
+        }
         if (req.getStatus() == 1 && !Integer.valueOf(1).equals(product.getAuditStatus())) {
             if (Integer.valueOf(2).equals(product.getAuditStatus())) {
                 String reason = product.getAuditReason() == null || product.getAuditReason().isBlank()
@@ -216,6 +236,24 @@ public class MerchantProductService {
     private void requireMerchant(String role) {
         if (!"merchant".equals(role)) {
             throw new BusinessException(403, "无商家权限");
+        }
+    }
+
+    /**
+     * 校验商家账号未被禁用(Feign 调 user-service 内部接口)。
+     * Feign 调用异常时放行并记日志(不因 user-service 抖动阻断正常商家),
+     * 被禁商家的请求正常情况下已在网关被账号状态拦截, 此处为第二重保险。
+     */
+    private void requireMerchantEnabled(Long merchantId) {
+        try {
+            Boolean enabled = userFeignClient.merchantEnabled(merchantId).getData();
+            if (!Boolean.TRUE.equals(enabled)) {
+                throw new BusinessException(403, "商家账号已被禁用，无法操作商品");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("校验商家账号状态失败(merchantId={}): {}", merchantId, e.getMessage());
         }
     }
 

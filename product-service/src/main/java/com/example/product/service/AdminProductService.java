@@ -97,7 +97,7 @@ public class AdminProductService {
 
     /**
      * 商品审核: 通过(1) / 拒绝(2)。
-     *  - 通过: 记录审核时间与操作备注, 商品仍保持当前上下架状态(商家自行上架);
+     *  - 通过: 记录审核时间与操作备注, 商品仍保持当前上下架状态(商家自行上架), 并解除平台下架锁;
      *  - 拒绝: 必须填写原因, 商品强制下架(audit_status=2 本就不允许上架, 这里兜底保证在售商品被拒后立即下架)。
      */
     public void audit(String role, Long id, Integer auditStatus, String auditReason) {
@@ -124,6 +124,9 @@ public class AdminProductService {
                 .set(Product::getAuditStatus, auditStatus)
                 .set(Product::getAuditReason, auditStatus == 2 ? reason : null)
                 .set(Product::getAuditTime, LocalDateTime.now())
+                // 平台下架锁与审核结论同步: 通过/拒绝后锁失去意义, 统一解除
+                // (拒绝时 audit_status=2 本身就禁止上架, 不会因解锁而放行)
+                .set(Product::getAdminLocked, 0)
                 // 拒绝时兜底强制下架, 防止被拒商品仍在售
                 .set(auditStatus == 2, Product::getStatus, 0));
         // 审核结论变更, 失效详情缓存保证 C 端立即可见
@@ -132,7 +135,9 @@ public class AdminProductService {
 
     /**
      * 管理端强制上架/下架。
-     * 强制上架门禁: 商品必须审核通过(audit_status=1), 未过审商品不允许进入市场。
+     *  - 强制上架门禁: 商品必须审核通过(audit_status=1), 未过审商品不允许进入市场;
+     *  - 强制下架: 置"平台下架锁"(admin_locked=1), 商家端不能再直接重新上架,
+     *    须商家编辑重新提审(过审自动解锁)或管理员强制上架(解锁), 防止商家秒速复活被下架商品。
      */
     public void updateStatus(String role, Long id, Integer status) {
         checkAdmin(role);
@@ -148,7 +153,9 @@ public class AdminProductService {
         }
         productMapper.update(null, Wrappers.<Product>lambdaUpdate()
                 .eq(Product::getId, id)
-                .set(Product::getStatus, status));
+                .set(Product::getStatus, status)
+                // 下架→加锁(商家不可自行复售); 上架→解锁(管理员已放行)
+                .set(Product::getAdminLocked, status == 0 ? 1 : 0));
         // 上下架后删除详情缓存, 顾客端下次读取直接回源最新状态
         productService.evictProductDetailCache(id);
     }

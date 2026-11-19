@@ -58,6 +58,24 @@ public class InternalUserController {
         return Result.success(merchants);
     }
 
+    /**
+     * 查询商家账号是否处于启用状态(role=merchant 且 status=1)。
+     * 供 product-service 在商家上架商品等写操作前做账号状态校验(服务间双保险,
+     * 与网关的账号状态拦截互为冗余)。
+     */
+    @GetMapping("/merchant/enabled")
+    public Result<Boolean> merchantEnabled(@RequestParam("id") Long id) {
+        if (id == null) {
+            return Result.success(false);
+        }
+        User user = userMapper.selectById(id);
+        boolean enabled = user != null
+                && "merchant".equals(user.getRole())
+                && user.getStatus() != null
+                && user.getStatus() == 1;
+        return Result.success(enabled);
+    }
+
     private MerchantBriefDTO toBrief(User user) {
         MerchantBriefDTO dto = new MerchantBriefDTO();
         dto.setId(user.getId());

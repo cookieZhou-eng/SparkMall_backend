@@ -60,5 +60,11 @@ public class MerchantSoldOrderVO {
         private LocalDateTime shipTime;
         /** 送达时间 */
         private LocalDateTime deliveryTime;
+        /** 承运商名称(已发货明细从物流单填充, 未发货为 null) */
+        private String company;
+        /** 运单号(已发货明细从物流单填充) */
+        private String trackingNo;
+        /** 物流轨迹状态: 0-待揽收 1-已揽收 2-运输中 3-派送中 4-已签收(已发货明细填充) */
+        private Integer traceStatus;
     }
 }

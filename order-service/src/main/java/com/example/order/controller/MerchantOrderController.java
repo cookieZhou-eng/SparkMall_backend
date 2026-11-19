@@ -1,8 +1,10 @@
 package com.example.order.controller;
 
 import com.example.common.result.Result;
+import com.example.order.dto.MerchantShipRequest;
 import com.example.order.dto.MerchantSoldOrderVO;
 import com.example.order.dto.MerchantStatsVO;
+import com.example.order.dto.OrderLogisticsVO;
 import com.example.order.service.MerchantOrderService;
 import jakarta.annotation.Resource;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -47,16 +49,29 @@ public class MerchantOrderController {
     }
 
     /**
-     * 发货: 明细 logistics_status 0->1, 写 ship_time
+     * 发货: 明细 logistics_status 0->1, 写 ship_time, 并创建物流单(承运商 + 运单号必填)
+     * body: { company, trackingNo }
      * 校验: 明细属于当前商家 + 待发货 + 订单已支付
      */
     @PutMapping("/item/{itemId}/ship")
     public Result<Void> ship(
             @RequestHeader("X-User-Id") Long merchantId,
             @RequestHeader("X-User-Role") String role,
-            @PathVariable Long itemId) {
-        merchantOrderService.ship(merchantId, role, itemId);
+            @PathVariable Long itemId,
+            @RequestBody MerchantShipRequest req) {
+        merchantOrderService.ship(merchantId, role, itemId, req);
         return Result.success();
+    }
+
+    /**
+     * 查看某明细的物流轨迹(商家): 物流单 + 轨迹时间线, 未发货时返回业务异常
+     */
+    @GetMapping("/item/{itemId}/logistics")
+    public Result<OrderLogisticsVO> itemLogistics(
+            @RequestHeader("X-User-Id") Long merchantId,
+            @RequestHeader("X-User-Role") String role,
+            @PathVariable Long itemId) {
+        return Result.success(merchantOrderService.itemLogistics(merchantId, role, itemId));
     }
 
     /**

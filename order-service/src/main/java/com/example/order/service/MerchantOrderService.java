@@ -5,9 +5,12 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.common.entity.Order;
 import com.example.common.entity.OrderItem;
+import com.example.common.entity.OrderLogistics;
 import com.example.common.result.Result;
+import com.example.order.dto.MerchantShipRequest;
 import com.example.order.dto.MerchantSoldOrderVO;
 import com.example.order.dto.MerchantStatsVO;
+import com.example.order.dto.OrderLogisticsVO;
 import com.example.order.exception.BusinessException;
 import com.example.order.mapper.OrderItemMapper;
 import com.example.order.mapper.OrderMapper;
@@ -45,6 +48,8 @@ public class MerchantOrderService {
     private OrderMapper orderMapper;
     @Resource
     private OrderItemMapper orderItemMapper;
+    @Resource
+    private LogisticsService logisticsService;
 
     /**
      * 我卖出的订单(按明细分页, 同一订单多个属于当前商家的明细合并为一个订单组)。
@@ -93,16 +98,28 @@ public class MerchantOrderService {
             }
             records.add(toSoldOrderVO(order, entry.getValue()));
         }
+        // 批量填充已发货明细的物流单信息(承运商/运单号/轨迹状态)
+        fillSoldLogistics(records);
         return new Result.PageData<>(pageResult.getTotal(), records);
     }
 
     /**
-     * 发货: 校验明细归属 + 待发货状态 + 订单已支付 -> logistics_status 0->1, 写 ship_time。
+     * 发货: 校验明细归属 + 待发货状态 + 订单已支付 -> logistics_status 0->1, 写 ship_time,
+     * 并创建模拟物流单(承运商 + 运单号必填)。
      * 发货成功后若该订单所有明细均已发货(logistics_status >= 1), 把订单状态 2(已支付/待发货) 条件更新为 3(已发货/待收货)。
      */
     @Transactional
-    public void ship(Long merchantId, String role, Long itemId) {
+    public void ship(Long merchantId, String role, Long itemId, MerchantShipRequest req) {
         requireMerchant(role);
+        // 承运商/运单号校验: 发货即生成物流单, 两者必填
+        if (req == null || req.getCompany() == null || req.getCompany().isBlank()) {
+            throw new BusinessException(400, "请选择承运商");
+        }
+        String company = req.getCompany().trim();
+        String trackingNo = req.getTrackingNo() == null ? "" : req.getTrackingNo().trim();
+        if (!trackingNo.matches("[A-Za-z0-9-]{5,30}")) {
+            throw new BusinessException(400, "运单号格式不正确(5-30 位字母/数字/短横线)");
+        }
         OrderItem item = requireOwnedItem(merchantId, itemId);
         if (item.getLogisticsStatus() == null || item.getLogisticsStatus() != 0) {
             throw new BusinessException(400, "该商品当前不是待发货状态, 无法发货");
@@ -120,6 +137,8 @@ public class MerchantOrderService {
         if (updated == 0) {
             throw new BusinessException(400, "发货失败, 商品状态已变更, 请刷新后重试");
         }
+        // 创建模拟物流单 + 首条"商家发货"轨迹, 之后由定时任务每 60 秒推进一条轨迹(签收即止)
+        logisticsService.createOnShip(item, company, trackingNo);
         // 所有明细都已发货(>=1) 时, 订单整体进入"已发货/待收货"状态
         promoteOrderToShipped(item.getOrderNo());
     }
@@ -157,6 +176,19 @@ public class MerchantOrderService {
     public MerchantStatsVO stats(Long merchantId, String role) {
         requireMerchant(role);
         return orderItemMapper.merchantStats(merchantId);
+    }
+
+    /**
+     * 查看某明细的物流轨迹(商家): 校验明细归属, 未发货抛业务异常。
+     */
+    public OrderLogisticsVO itemLogistics(Long merchantId, String role, Long itemId) {
+        requireMerchant(role);
+        OrderItem item = requireOwnedItem(merchantId, itemId);
+        OrderLogistics logistics = logisticsService.findByItemId(itemId);
+        if (logistics == null) {
+            throw new BusinessException(400, "该商品尚未发货, 暂无物流信息");
+        }
+        return logisticsService.toVO(logistics, item.getProductName());
     }
 
     // ==================== 私有辅助 ====================
@@ -221,6 +253,28 @@ public class MerchantOrderService {
         vo.setTotalAmount(order.getTotalAmount());
         vo.setItems(items.stream().map(this::toSoldItemVO).collect(Collectors.toList()));
         return vo;
+    }
+
+    /**
+     * 批量填充卖出明细的物流单信息(承运商/运单号/轨迹状态)。
+     * 已发货的明细在 t_order_logistics 有对应物流单, 未发货明细保持 null; 一次 IN 查询避免 N+1。
+     */
+    private void fillSoldLogistics(List<MerchantSoldOrderVO> records) {
+        List<Long> itemIds = records.stream()
+                .flatMap(r -> r.getItems().stream())
+                .map(MerchantSoldOrderVO.MerchantSoldItemVO::getItemId)
+                .collect(Collectors.toList());
+        Map<Long, OrderLogistics> logisticsMap = logisticsService.mapByItemIds(itemIds);
+        for (MerchantSoldOrderVO record : records) {
+            for (MerchantSoldOrderVO.MerchantSoldItemVO item : record.getItems()) {
+                OrderLogistics logistics = logisticsMap.get(item.getItemId());
+                if (logistics != null) {
+                    item.setCompany(logistics.getCompany());
+                    item.setTrackingNo(logistics.getTrackingNo());
+                    item.setTraceStatus(logistics.getStatus());
+                }
+            }
+        }
     }
 
     private MerchantSoldOrderVO.MerchantSoldItemVO toSoldItemVO(OrderItem item) {

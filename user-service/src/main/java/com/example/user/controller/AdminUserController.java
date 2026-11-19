@@ -21,19 +21,17 @@ public class AdminUserController {
     private AdminUserService adminUserService;
 
     /**
-     * 用户分页列表
-     * @param roleFilter 可选角色筛选: customer / merchant / admin
-     * @param status     可选状态筛选: 1-启用 0-禁用
+     * 用户分页列表(仅普通顾客账号, 商家走 /admin/merchant)
+     * @param status 可选状态筛选: 1-启用 0-禁用
      */
     @GetMapping("/list")
     public Result<Result.PageData<UserVO>> list(
             @RequestHeader("X-User-Role") String role,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String roleFilter,
             @RequestParam(required = false) Integer status,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size) {
-        return Result.success(adminUserService.list(role, keyword, roleFilter, status, page, size));
+        return Result.success(adminUserService.list(role, keyword, status, page, size));
     }
 
     /**

@@ -3,17 +3,20 @@ package com.example.user.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.example.common.constant.AuthKeys;
 import com.example.common.entity.User;
 import com.example.common.result.Result;
 import com.example.user.dto.UserVO;
 import com.example.user.exception.BusinessException;
 import com.example.user.mapper.UserMapper;
 import jakarta.annotation.Resource;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -30,25 +33,28 @@ public class AdminUserService {
 
     @Resource
     private UserMapper userMapper;
+    /** 禁用/启用账号时同步 Redis 状态键, 网关据此即时拦截存量 token */
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     /**
-     * 用户分页列表(支持关键词、角色、状态筛选)
+     * 用户分页列表 —— 职责收敛: 用户管理只面向普通顾客账号。
+     * 商家账号统一走 /admin/merchant 商家管理(含级联下架等商家专属操作);
+     * 管理员账号不出现在列表中, 也不允许被禁用。
      */
-    public Result.PageData<UserVO> list(String role, String keyword, String roleFilter,
+    public Result.PageData<UserVO> list(String role, String keyword,
                                         Integer status, Integer page, Integer size) {
         checkAdmin(role);
         int p = page == null || page < 1 ? 1 : page;
         int s = size == null || size < 1 ? 10 : Math.min(size, MAX_PAGE_SIZE);
 
-        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
+        LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<User>()
+                .eq(User::getRole, "customer"); // 只管理普通用户(顾客)
         String kw = keyword == null ? "" : keyword.trim();
         if (!kw.isEmpty()) {
             wrapper.and(w -> w.like(User::getUsername, kw)
                     .or().like(User::getNickname, kw)
                     .or().like(User::getPhone, kw));
-        }
-        if (roleFilter != null && !roleFilter.isBlank()) {
-            wrapper.eq(User::getRole, roleFilter.trim());
         }
         if (status != null) {
             wrapper.eq(User::getStatus, status);
@@ -81,7 +87,10 @@ public class AdminUserService {
     }
 
     /**
-     * 启用/禁用用户; 管理员账号不允许被禁用, 防止误操作导致后台无法登录
+     * 启用/禁用用户(仅普通顾客账号):
+     *  - 商家账号请走商家管理(禁用商家需级联下架商品, 逻辑不同);
+     *  - 管理员账号不允许禁用, 防止误操作导致后台无法登录;
+     *  - 禁用时写 Redis 状态键为 "0", 网关立即拦截该账号的存量 token(无需等 7 天过期)。
      */
     public void updateStatus(String role, Long id, Integer status) {
         checkAdmin(role);
@@ -92,12 +101,18 @@ public class AdminUserService {
         if (user == null) {
             throw new BusinessException(404, "用户不存在");
         }
-        if ("admin".equals(user.getRole()) && status == 0) {
-            throw new BusinessException(400, "管理员账号不允许被禁用");
+        if (!"customer".equals(user.getRole())) {
+            throw new BusinessException(400, "用户管理仅支持普通顾客账号, 商家请到「商家管理」操作");
+        }
+        if (status == 0 && user.getStatus() != null && user.getStatus() == 0) {
+            throw new BusinessException(400, "该用户已被禁用");
         }
         userMapper.update(null, Wrappers.<User>lambdaUpdate()
                 .eq(User::getId, id)
                 .set(User::getStatus, status));
+        // 同步账号状态到 Redis: 禁用→"0"(存量 token 立即失效), 启用→"1"(恢复)
+        stringRedisTemplate.opsForValue().set(
+                AuthKeys.USER_STATUS_PREFIX + id, status == 1 ? "1" : "0", 7, TimeUnit.DAYS);
     }
 
     private void checkAdmin(String role) {

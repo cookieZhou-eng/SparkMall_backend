@@ -51,13 +51,19 @@ public class ProductController {
      * 商品详情(Cache-Aside 在 Service 中实现)
      * 审核门禁: 只有"审核通过且上架中"的商品对 C 端可见, 待审核/被拒/下架商品返回 404,
      * 同时拦截 order-service 下单链路(下单也走此接口取价), 保证未审核商品不可购买。
+     * 兼容性说明: auditStatus 为 null 时视为已过审——升级部署后 Redis 里的旧缓存 JSON
+     * 无此字段, DB 中该列 NOT NULL 且审核拦截都在写路径, 这里放宽仅避免旧缓存短暂 404。
      */
     @GetMapping("/{id}")
     public Result<Product> getById(@PathVariable Long id) {
         Product product = productService.getById(id);
-        if (product == null
-                || !Integer.valueOf(1).equals(product.getStatus())
-                || !Integer.valueOf(1).equals(product.getAuditStatus())) {
+        if (product == null || !Integer.valueOf(1).equals(product.getStatus())) {
+            return Result.fail(404, "商品不存在或已下架");
+        }
+        // auditStatus 为 null 视为已过审(升级后 Redis 旧缓存无此字段, DB 列 NOT NULL)
+        boolean approved = product.getAuditStatus() == null
+                || Integer.valueOf(1).equals(product.getAuditStatus());
+        if (!approved) {
             return Result.fail(404, "商品不存在或已下架");
         }
         return Result.success(product);

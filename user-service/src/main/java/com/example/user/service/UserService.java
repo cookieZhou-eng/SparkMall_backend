@@ -1,6 +1,7 @@
 package com.example.user.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.example.common.constant.AuthKeys;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.example.common.entity.User;
@@ -89,6 +90,10 @@ public class UserService {
         data.put("token", JwtUtil.createToken(user.getId(), user.getUsername(), role));
         data.put("nickname", user.getNickname());
         data.put("role", role);
+        // 登录成功即写入"账号状态=启用"到 Redis(与 JWT 7 天有效期对齐),
+        // 管理端禁用时改写为 "0", 网关据此让存量 token 立即失效
+        stringRedisTemplate.opsForValue().set(
+                AuthKeys.USER_STATUS_PREFIX + user.getId(), "1", 7, TimeUnit.DAYS);
         return data;
     }
 

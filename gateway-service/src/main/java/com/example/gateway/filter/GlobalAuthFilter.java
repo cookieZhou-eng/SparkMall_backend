@@ -1,5 +1,6 @@
 package com.example.gateway.filter;
 
+import com.example.common.constant.AuthKeys;
 import com.example.common.util.JwtUtil;
 import io.jsonwebtoken.Claims;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -18,19 +19,21 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * 网关统一鉴权 Filter(JWT + Redis 黑名单)。
+ * 网关统一鉴权 Filter(JWT + Redis 黑名单 + 账号状态)。
  *
  * 设计要点:
- *  - 认证收敛到网关: 所有经网关的请求先校验 JWT 签名/过期, 再查 Redis 黑名单
+ *  - 认证收敛到网关: 所有经网关的请求先校验 JWT 签名/过期, 再查 Redis 黑名单与账号状态
  *  - 白名单无需鉴权: /user/login(登录)、/user/logout(退出)、/product/**(商品浏览公开)
  *  - 退出登录: user-service 把 token 写入 Redis 黑名单, 网关查到即拒, 实现即时失效
+ *  - 禁用账号: user-service 把 auth:user:status:{userId} 置 "0", 网关查到即拒(401),
+ *    管理端禁用后无需等 7 天 token 自然过期, 存量 token 立即失效
  *  - 鉴权通过后把 userId/username 透传(X-User-Id/X-User-Name)给下游
  */
 @Component
 public class GlobalAuthFilter implements GlobalFilter, Ordered {
 
     /** JWT 黑名单 key 前缀(与 user-service 写入时保持一致) */
-    private static final String TOKEN_BLACKLIST_PREFIX = "auth:token:blacklist:";
+    private static final String TOKEN_BLACKLIST_PREFIX = AuthKeys.TOKEN_BLACKLIST_PREFIX;
 
     private static final List<String> WHITE_LIST = List.of("/user/login", "/user/logout");
     // 公开浏览前缀: 商品浏览 + 秒杀(扣减/确认虽公开, 但单靠 Redis 幂等+DB条件更新防超卖)
@@ -107,18 +110,30 @@ public class GlobalAuthFilter implements GlobalFilter, Ordered {
                     if (Boolean.TRUE.equals(blocked)) {
                         return unauthorized(exchange, "登录已失效，请重新登录");
                     }
-                    // 3. 角色校验: 商家专属接口(/merchant/**、/order/merchant/**)要求 role=merchant;
-                    //    管理端接口(/admin/**)要求 role=admin
-                    if (isMerchantPath(path)
-                            && !"merchant".equals(claims.get("role"))) {
-                        return forbidden(exchange, "无商家权限");
-                    }
-                    if (isAdminPath(path)
-                            && !"admin".equals(claims.get("role"))) {
-                        return forbidden(exchange, "无管理员权限");
-                    }
-                    // 4. 鉴权通过: 把已签名的用户身份透传下游(userId/username/role)
-                    return chain.filter(exchange.mutate().request(withUser(request, claims)).build());
+                    // 2.5 账号状态校验: 管理端禁用后, 该账号的存量 token 立即失效(返回 401,
+                    //     前端拦截器自动清理会话并跳登录页; 重新登录也会被登录接口的状态校验拦下)
+                    String userId = claims.getSubject();
+                    return redisTemplate.opsForValue()
+                            .get(AuthKeys.USER_STATUS_PREFIX + userId)
+                            .defaultIfEmpty("1")
+                            .onErrorResume(e -> Mono.just("1")) // Redis 异常时放行, 不因缓存故障阻断正常用户
+                            .flatMap(status -> {
+                                if ("0".equals(status)) {
+                                    return unauthorized(exchange, "账号已被禁用，请联系管理员");
+                                }
+                                // 3. 角色校验: 商家专属接口(/merchant/**、/order/merchant/**)要求 role=merchant;
+                                //    管理端接口(/admin/**)要求 role=admin
+                                if (isMerchantPath(path)
+                                        && !"merchant".equals(claims.get("role"))) {
+                                    return forbidden(exchange, "无商家权限");
+                                }
+                                if (isAdminPath(path)
+                                        && !"admin".equals(claims.get("role"))) {
+                                    return forbidden(exchange, "无管理员权限");
+                                }
+                                // 4. 鉴权通过: 把已签名的用户身份透传下游(userId/username/role)
+                                return chain.filter(exchange.mutate().request(withUser(request, claims)).build());
+                            });
                 });
     }
 
