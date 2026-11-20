@@ -20,7 +20,13 @@ spring:
             locator:
               enabled: true # 开启从Nacos动态发现服务
           routes:
-              # 路由配置，用于将请求转发到对应的服务，比如访问/product/**的请求将被转发到product-service服务
+              # AI 智能导购助手(需登录, GlobalAuthFilter 默认拦截非白名单路径)
+            - id: ai-route
+              uri: lb://ai-service
+              predicates:
+                - Path=/ai/**
+
+            # 路由配置，用于将请求转发到对应的服务，比如访问/product/**的请求将被转发到product-service服务
             - id: product-route
               uri: lb://product-service
               predicates:

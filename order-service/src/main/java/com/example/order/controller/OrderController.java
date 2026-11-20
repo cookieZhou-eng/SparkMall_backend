@@ -8,6 +8,7 @@ import com.example.common.result.Result;
 import com.example.order.dto.OrderCancelRequest;
 import com.example.order.dto.OrderConfirmRequest;
 import com.example.order.dto.OrderCreateRequest;
+import com.example.order.dto.OrderLogisticsVO;
 import com.example.order.dto.OrderPayRequest;
 import com.example.order.service.OrderService;
 import org.springframework.beans.factory.annotation.Value;
@@ -118,5 +119,14 @@ public class OrderController {
     @GetMapping("/desc")
     public Result<String> getDesc() {
         return Result.success(orderDesc);
+    }
+
+    /**
+     * 订单明细物流轨迹(用户侧; AI 助手经 Feign 透传调用, 归属校验在 service 内)
+     */
+    @GetMapping("/logistics/item/{itemId}")
+    public Result<OrderLogisticsVO> itemLogistics(@PathVariable Long itemId,
+                                                  @RequestHeader("X-User-Id") Long userId) {
+        return Result.success(orderService.userItemLogistics(userId, itemId));
     }
 }

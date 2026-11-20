@@ -11,6 +11,7 @@ import com.example.common.entity.Refund;
 import com.example.common.result.Result;
 import com.example.order.dto.RefundApplyRequest;
 import com.example.order.dto.RefundAuditRequest;
+import com.example.order.dto.RefundDraftVO;
 import com.example.order.exception.BusinessException;
 import com.example.order.feign.ProductFeignClient;
 import com.example.order.mapper.OrderItemMapper;
@@ -162,6 +163,36 @@ public class RefundService {
         return refundMapper.selectList(new LambdaQueryWrapper<Refund>()
                 .eq(Refund::getOrderId, orderId)
                 .orderByDesc(Refund::getApplyTime));
+    }
+
+    /**
+     * 退款申请草稿建议(AI 助手 applyRefundDraft 工具用, 只返回建议不落库):
+     * 校验归属与可退状态后, 按订单状态推荐退款类型——
+     * 已支付未发货通常无需退货 -> 仅退款(1); 已发货/已完成 -> 退货退款(2)。
+     */
+    public RefundDraftVO draft(Long userId, Long orderId) {
+        if (userId == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        if (orderId == null) {
+            throw new BusinessException(400, "订单ID不能为空");
+        }
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) {
+            throw new BusinessException(404, "订单不存在");
+        }
+        if (!userId.equals(order.getUserId())) {
+            throw new BusinessException(403, "无权操作该订单");
+        }
+        if (order.getStatus() == null || !REFUNDABLE_ORDER_STATUS.contains(order.getStatus())) {
+            throw new BusinessException(400, "当前订单状态不可申请退款");
+        }
+        RefundDraftVO vo = new RefundDraftVO();
+        vo.setOrderId(order.getId());
+        vo.setOrderNo(order.getOrderNo());
+        vo.setAmount(order.getTotalAmount());
+        vo.setSuggestedType(order.getStatus() == 2 ? 1 : 2);
+        return vo;
     }
 
     /**

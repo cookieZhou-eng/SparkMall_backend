@@ -3,6 +3,7 @@ package com.example.order.controller;
 import com.example.common.entity.Refund;
 import com.example.common.result.Result;
 import com.example.order.dto.RefundApplyRequest;
+import com.example.order.dto.RefundDraftVO;
 import com.example.order.service.RefundService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,5 +55,15 @@ public class RefundController {
             @PathVariable Long orderId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         return Result.success(refundService.listByOrder(orderId, userId));
+    }
+
+    /**
+     * 退款申请草稿建议(AI 助手工具用, 仅建议不提交; 用户确认后到订单页正式申请)
+     */
+    @GetMapping("/draft/{orderId}")
+    public Result<RefundDraftVO> draft(
+            @PathVariable Long orderId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        return Result.success(refundService.draft(userId, orderId));
     }
 }

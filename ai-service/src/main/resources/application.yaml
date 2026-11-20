@@ -1,0 +1,66 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: ai-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+      config:
+        server-addr: localhost:8848
+        file-extension: yaml
+        group: DEFAULT_GROUP
+  # 关键：导入Nacos配置，替代旧版bootstrap.yml
+  # 注意: ai-service 是新服务, Nacos 上暂无配置文件, 必须用 optional: 导入,
+  # 否则 Nacos 找不到 ai-service-dev.yaml 会直接启动失败
+  config:
+    import:
+      - optional:nacos:${spring.application.name}-dev.${spring.cloud.nacos.config.file-extension}?refreshEnabled=true
+      # 本地开发配置(含数据库密码, 该文件已被 .gitignore 忽略); 可选导入, 不依赖启动工作目录
+      - optional:classpath:application-local.yaml
+
+  # 数据源配置(AI 会话/消息落库, 与其他服务共用 spark_mall 库)
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/spark_mall?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
+
+# AI 助手自定义配置
+app:
+  ai:
+    # 大模型(OpenAI 兼容 /chat/completions 协议, 默认 DeepSeek)
+    llm:
+      base-url: ${LLM_BASE_URL:https://api.deepseek.com/v1}
+      api-key: ${LLM_API_KEY:}          # 必填: 环境变量或 Nacos 配置注入
+      model: ${LLM_MODEL:deepseek-chat}
+      temperature: 0.7
+      max-tokens: 1024
+      timeout-seconds: 60               # 单次模型调用超时
+      max-tool-rounds: 5                # 工具循环最多轮数, 耗尽后强制让模型直接出文本
+      history-rounds: 6                 # 带入上下文的历史对话轮数(1轮=1问1答)
+    # 语料分块检索(RAG 阶段一: 关键词 LIKE 打分, 后续可升级向量检索)
+    rag:
+      top-k: 4                          # 每次检索返回的最大知识块数
+      similarity-threshold: 0.2         # 相关度得分低于该值的知识块丢弃
+      corpus-path: classpath:rag/faq-knowledge.md
+    # 提示词与工具定义(与 docs/ai-agent/ 下的文档保持同步)
+    prompt-path: classpath:prompt/system-prompt.md
+    tools-path: classpath:tools/tools.schema.json
+    # 模型调用失败时的兜底话术
+    fallback:
+      error-reply: 智能助手暂时开小差了，请稍后再试，或直接在商城页面浏览商品～
+
+# MyBatis-Plus 配置(与 order-service 保持一致)
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: is_deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0

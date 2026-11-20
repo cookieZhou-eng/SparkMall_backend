@@ -13,6 +13,7 @@ import com.example.common.entity.Refund;
 import com.example.common.entity.Review;
 import com.example.common.result.Result;
 import com.example.order.dto.OrderCancelRequest;
+import com.example.order.dto.OrderLogisticsVO;
 import com.example.order.config.RabbitConfig;
 import com.example.order.dto.OrderCreateRequest;
 import com.example.order.dto.OrderPayRequest;
@@ -392,6 +393,30 @@ public class OrderService {
         fillLogisticsTraces(order);
         fillRemainingSeconds(List.of(order));
         return order;
+    }
+
+    /**
+     * 用户查询某订单明细的物流轨迹(AI 助手经 Feign 透传调用, 归属校验在此兜底)。
+     * 明细按 orderNo 反查订单, 非本人订单一律 403; 未发货(无物流单)返回 400 提示。
+     */
+    public OrderLogisticsVO userItemLogistics(Long userId, Long itemId) {
+        OrderItem item = orderItemMapper.selectById(itemId);
+        if (item == null) {
+            throw new BusinessException(404, "订单明细不存在");
+        }
+        Order order = orderMapper.selectOne(
+                new LambdaQueryWrapper<Order>().eq(Order::getOrderNo, item.getOrderNo()));
+        if (order == null) {
+            throw new BusinessException(404, "订单不存在");
+        }
+        if (!userId.equals(order.getUserId())) {
+            throw new BusinessException(403, "无权查看该订单物流");
+        }
+        OrderLogistics logistics = logisticsService.findByItemId(itemId);
+        if (logistics == null) {
+            throw new BusinessException(400, "该商品尚未发货, 暂无物流信息");
+        }
+        return logisticsService.toVO(logistics, item.getProductName());
     }
 
     /**
