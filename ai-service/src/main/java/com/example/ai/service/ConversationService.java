@@ -130,4 +130,21 @@ public class ConversationService {
                 .eq(AiMessage::getConversationId, conv.getId())
                 .orderByAsc(AiMessage::getId));
     }
+
+    /**
+     * 删除会话及其全部消息(先校验归属)。
+     * 两张实体表均有 @TableLogic, 实际执行逻辑删除(is_deleted=1)。
+     */
+    public void deleteConversation(Long userId, String conversationNo) {
+        AiConversation conv = conversationMapper.selectOne(
+                new LambdaQueryWrapper<AiConversation>()
+                        .eq(AiConversation::getConversationNo, conversationNo)
+                        .eq(AiConversation::getUserId, userId));
+        if (conv == null) {
+            throw new BusinessException(404, "会话不存在");
+        }
+        conversationMapper.deleteById(conv.getId());
+        messageMapper.delete(new LambdaQueryWrapper<AiMessage>()
+                .eq(AiMessage::getConversationId, conv.getId()));
+    }
 }

@@ -10,6 +10,7 @@ import com.example.ai.agent.AgentService;
 import com.example.ai.service.ConversationService;
 import com.example.common.result.Result;
 import jakarta.annotation.Resource;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -63,5 +64,15 @@ public class AiChatController {
                 .map(AiMessageVO::new)
                 .toList();
         return Result.success(list);
+    }
+
+    /**
+     * 删除会话(连带删除全部历史消息, 校验归属)
+     */
+    @DeleteMapping("/conversations/{conversationNo}")
+    public Result<Void> deleteConversation(@RequestHeader("X-User-Id") Long userId,
+                                           @PathVariable String conversationNo) {
+        conversationService.deleteConversation(userId, conversationNo);
+        return Result.success();
     }
 }

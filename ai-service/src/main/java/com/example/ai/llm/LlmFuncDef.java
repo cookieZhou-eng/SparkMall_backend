@@ -1,6 +1,6 @@
 package com.example.ai.llm;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import lombok.Data;
 
 /** 工具定义的函数部分(名称/描述/JSON Schema 参数) */

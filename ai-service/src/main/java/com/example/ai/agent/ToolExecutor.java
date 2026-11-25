@@ -7,8 +7,8 @@ import com.example.common.entity.Order;
 import com.example.common.entity.Product;
 import com.example.common.entity.Refund;
 import com.example.common.result.Result;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -378,7 +378,10 @@ public class ToolExecutor {
 
     private Long longValue(JsonNode args, String key) {
         JsonNode n = args.get(key);
-        return n == null || n.isNull() || !n.canConvertToLong() ? null : n.asLong();
+        if (n == null || n.isNull() || !(n.isIntegralNumber() || n.isTextual())) {
+            return null;
+        }
+        return n.asLong();
     }
 
     private Integer intValue(JsonNode args, String key) {

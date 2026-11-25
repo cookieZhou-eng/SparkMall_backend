@@ -2,7 +2,7 @@ package com.example.ai.llm;
 
 import com.example.ai.config.AiProperties;
 import com.example.ai.exception.BusinessException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;

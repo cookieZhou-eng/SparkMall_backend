@@ -3,7 +3,7 @@ package com.example.ai.feign;
 import com.example.common.entity.Order;
 import com.example.common.entity.Refund;
 import com.example.common.result.Result;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
